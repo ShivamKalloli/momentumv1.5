@@ -24,14 +24,33 @@ Deno.serve(async (req: Request) => {
       throw new Error('Invalid input: goal_title is required and must be a string');
     }
 
-    // Get Google AI API key from environment
+    // Enhanced environment variable debugging
     const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
+    const allEnvKeys = Object.keys(Deno.env.toObject());
     
-    console.log('🔑 API Key status:', apiKey ? 'Available' : 'Missing');
+    console.log('🔑 API Key status:', apiKey ? `Available (${apiKey.substring(0, 10)}...)` : 'Missing');
+    console.log('🌍 Available env vars:', allEnvKeys);
 
     if (!apiKey) {
       console.error('❌ Google AI API key not found in environment');
-      throw new Error('Google AI API key not configured');
+      console.error('💡 Available environment variables:', allEnvKeys.join(', '));
+      
+      return new Response(
+        JSON.stringify({ 
+          error: 'Google AI API key not configured',
+          debug: {
+            availableEnvVars: allEnvKeys,
+            expectedKey: 'GOOGLE_AI_API_KEY'
+          }
+        }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+          },
+        }
+      );
     }
 
     const prompt = `You are an expert goal planning assistant. The user wants to achieve: "${goal_title}"
@@ -94,7 +113,35 @@ Format: ["Question 1?", "Question 2?", "Question 3?", "Question 4?"]`;
     if (!geminiResponse.ok) {
       const errorText = await geminiResponse.text();
       console.error('❌ Gemini API error:', geminiResponse.status, errorText);
-      throw new Error(`Gemini API error: ${geminiResponse.status} - ${errorText}`);
+      
+      // Enhanced error handling
+      let errorMessage = 'Unknown API error';
+      if (geminiResponse.status === 400) {
+        errorMessage = 'Invalid API request - check API key format';
+      } else if (geminiResponse.status === 401) {
+        errorMessage = 'Invalid API key - check your Google AI API key';
+      } else if (geminiResponse.status === 403) {
+        errorMessage = 'API access forbidden - check API key permissions';
+      } else if (geminiResponse.status === 429) {
+        errorMessage = 'API rate limit exceeded - try again later';
+      } else if (geminiResponse.status >= 500) {
+        errorMessage = 'Google AI service temporarily unavailable';
+      }
+      
+      return new Response(
+        JSON.stringify({ 
+          error: errorMessage,
+          details: errorText,
+          status: geminiResponse.status
+        }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+          },
+        }
+      );
     }
 
     const geminiData = await geminiResponse.json();
@@ -118,7 +165,55 @@ Format: ["Question 1?", "Question 2?", "Question 3?", "Question 4?"]`;
     } catch (parseError) {
       console.error('❌ Failed to parse AI response:', parseError);
       console.log('Raw response sample:', aiResponse?.substring(0, 200));
-      throw new Error('Failed to parse AI questions response');
+      
+      // Enhanced fallback questions based on goal type
+      const goal = goal_title.toLowerCase();
+      
+      if (goal.includes('learn') || goal.includes('study')) {
+        if (goal.includes('language')) {
+          questions = [
+            'What is your current level in this language?',
+            'How much time can you dedicate to practice daily?',
+            'Do you prefer structured courses or self-study?',
+            'What specific skills do you want to focus on most (speaking, writing, reading)?'
+          ];
+        } else if (goal.includes('code') || goal.includes('program')) {
+          questions = [
+            'What is your programming experience level?',
+            'Which programming language interests you most?',
+            'Do you have a specific project in mind?',
+            'How much time can you dedicate to coding daily?'
+          ];
+        } else {
+          questions = [
+            'What is your current knowledge level in this area?',
+            'How much time can you dedicate to learning daily?',
+            'What learning resources do you prefer?',
+            'What specific outcome do you want to achieve?'
+          ];
+        }
+      } else if (goal.includes('fitness') || goal.includes('workout') || goal.includes('run')) {
+        questions = [
+          'What is your current fitness level?',
+          'How many days per week can you exercise?',
+          'Do you have access to a gym or equipment?',
+          'What is your main motivation for this goal?'
+        ];
+      } else if (goal.includes('business') || goal.includes('startup')) {
+        questions = [
+          'What is your relevant experience in this area?',
+          'What resources or budget do you have available?',
+          'What is your target timeline for initial results?',
+          'Who is your target audience or market?'
+        ];
+      } else {
+        questions = [
+          'What is your current experience level with this goal?',
+          'How much time can you realistically dedicate daily?',
+          'What resources or support do you have available?',
+          'How will you measure success and stay motivated?'
+        ];
+      }
     }
 
     return new Response(

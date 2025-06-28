@@ -28,14 +28,33 @@ Deno.serve(async (req: Request) => {
       throw new Error('Invalid input: duration_days must be a positive number');
     }
 
-    // Get Google AI API key from environment
+    // Enhanced environment variable debugging
     const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
+    const allEnvKeys = Object.keys(Deno.env.toObject());
     
-    console.log('🔑 API Key status:', apiKey ? 'Available' : 'Missing');
+    console.log('🔑 API Key status:', apiKey ? `Available (${apiKey.substring(0, 10)}...)` : 'Missing');
+    console.log('🌍 Available env vars:', allEnvKeys);
 
     if (!apiKey) {
       console.error('❌ Google AI API key not found in environment');
-      throw new Error('Google AI API key not configured');
+      console.error('💡 Available environment variables:', allEnvKeys.join(', '));
+      
+      return new Response(
+        JSON.stringify({ 
+          error: 'Google AI API key not configured',
+          debug: {
+            availableEnvVars: allEnvKeys,
+            expectedKey: 'GOOGLE_AI_API_KEY'
+          }
+        }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+          },
+        }
+      );
     }
 
     // Prepare context from answers
@@ -138,7 +157,35 @@ Make the plan feel personal and achievable based on their specific situation and
     if (!geminiResponse.ok) {
       const errorText = await geminiResponse.text();
       console.error('❌ Gemini API error:', geminiResponse.status, errorText);
-      throw new Error(`Gemini API error: ${geminiResponse.status} - ${errorText}`);
+      
+      // Enhanced error handling
+      let errorMessage = 'Unknown API error';
+      if (geminiResponse.status === 400) {
+        errorMessage = 'Invalid API request - check API key format';
+      } else if (geminiResponse.status === 401) {
+        errorMessage = 'Invalid API key - check your Google AI API key';
+      } else if (geminiResponse.status === 403) {
+        errorMessage = 'API access forbidden - check API key permissions';
+      } else if (geminiResponse.status === 429) {
+        errorMessage = 'API rate limit exceeded - try again later';
+      } else if (geminiResponse.status >= 500) {
+        errorMessage = 'Google AI service temporarily unavailable';
+      }
+      
+      return new Response(
+        JSON.stringify({ 
+          error: errorMessage,
+          details: errorText,
+          status: geminiResponse.status
+        }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+          },
+        }
+      );
     }
 
     const geminiData = await geminiResponse.json();

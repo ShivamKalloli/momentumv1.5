@@ -27,7 +27,7 @@ class AIService {
       
       // Add timeout and better error handling
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
       
       const { data, error } = await supabase.functions.invoke(functionName, {
         body: payload,
@@ -48,19 +48,29 @@ class AIService {
       if (error) {
         console.error(`❌ Supabase function error for ${functionName}:`, error);
         
-        // Check if it's a network/connection error
+        // Enhanced error handling with specific status codes
         if (error.message?.includes('Failed to fetch') || error.message?.includes('network')) {
           throw new Error('Network connection failed. Please check your internet connection and try again.');
         }
         
-        // Check if it's a function deployment error
         if (error.message?.includes('Function not found') || error.message?.includes('404')) {
           throw new Error('AI service is temporarily unavailable. Please try again later.');
         }
         
-        // Check if it's an authentication error
         if (error.message?.includes('401') || error.message?.includes('unauthorized')) {
           throw new Error('Authentication failed. Please check your Supabase configuration.');
+        }
+        
+        if (error.message?.includes('403')) {
+          throw new Error('API access forbidden. Please check your Google AI API key permissions.');
+        }
+        
+        if (error.message?.includes('429')) {
+          throw new Error('API rate limit exceeded. Please wait a moment and try again.');
+        }
+        
+        if (error.message?.includes('500') || error.message?.includes('Internal Server Error')) {
+          throw new Error('AI service is temporarily unavailable. Please try again in a few minutes.');
         }
         
         throw new Error(`AI service error: ${error.message}`);
@@ -68,6 +78,20 @@ class AIService {
       
       if (data?.error) {
         console.error(`❌ AI function returned error for ${functionName}:`, data.error);
+        
+        // Handle specific API errors from the edge function
+        if (data.error.includes('Invalid API key')) {
+          throw new Error('Invalid Google AI API key. Please check your API key configuration.');
+        }
+        
+        if (data.error.includes('API access forbidden')) {
+          throw new Error('Google AI API access forbidden. Please check your API key permissions.');
+        }
+        
+        if (data.error.includes('rate limit')) {
+          throw new Error('API rate limit exceeded. Please wait a moment and try again.');
+        }
+        
         throw new Error(`AI function error: ${data.error}`);
       }
       
@@ -82,13 +106,16 @@ class AIService {
       // If it's already our custom error, re-throw it
       if (error.message?.includes('Network connection') || 
           error.message?.includes('AI service') || 
-          error.message?.includes('Authentication')) {
+          error.message?.includes('Authentication') ||
+          error.message?.includes('Invalid Google AI') ||
+          error.message?.includes('API access forbidden') ||
+          error.message?.includes('rate limit')) {
         throw error;
       }
       
       // Handle AbortError (timeout)
       if (error.name === 'AbortError') {
-        throw new Error('Request timed out. Please try again.');
+        throw new Error('Request timed out. The AI service is taking too long to respond. Please try again.');
       }
       
       // Generic error
