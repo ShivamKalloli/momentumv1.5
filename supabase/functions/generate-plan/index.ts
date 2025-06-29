@@ -28,24 +28,16 @@ Deno.serve(async (req: Request) => {
       throw new Error('Invalid input: duration_days must be a positive number');
     }
 
-    // Enhanced environment variable debugging
     const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
-    const allEnvKeys = Object.keys(Deno.env.toObject());
     
     console.log('🔑 API Key status:', apiKey ? `Available (${apiKey.substring(0, 10)}...)` : 'Missing');
-    console.log('🌍 Available env vars:', allEnvKeys);
 
     if (!apiKey) {
       console.error('❌ Google AI API key not found in environment');
-      console.error('💡 Available environment variables:', allEnvKeys.join(', '));
       
       return new Response(
         JSON.stringify({ 
-          error: 'Google AI API key not configured',
-          debug: {
-            availableEnvVars: allEnvKeys,
-            expectedKey: 'GOOGLE_AI_API_KEY'
-          }
+          error: 'Google AI API key not configured. Please add GOOGLE_AI_API_KEY to your Supabase Edge Functions environment variables.'
         }),
         {
           status: 500,
@@ -133,108 +125,135 @@ Make the plan feel personal and achievable based on their specific situation and
 
     console.log('🚀 Making request to Gemini API for plan generation...');
     
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{ text: prompt }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 4000,
-          }
-        })
-      }
-    );
-
-    console.log('📡 Gemini API response status:', geminiResponse.status);
-
-    if (!geminiResponse.ok) {
-      const errorText = await geminiResponse.text();
-      console.error('❌ Gemini API error:', geminiResponse.status, errorText);
-      
-      // Enhanced error handling
-      let errorMessage = 'Unknown API error';
-      if (geminiResponse.status === 400) {
-        errorMessage = 'Invalid API request - check API key format';
-      } else if (geminiResponse.status === 401) {
-        errorMessage = 'Invalid API key - check your Google AI API key';
-      } else if (geminiResponse.status === 403) {
-        errorMessage = 'API access forbidden - check API key permissions';
-      } else if (geminiResponse.status === 429) {
-        errorMessage = 'API rate limit exceeded - try again later';
-      } else if (geminiResponse.status >= 500) {
-        errorMessage = 'Google AI service temporarily unavailable';
-      }
-      
-      return new Response(
-        JSON.stringify({ 
-          error: errorMessage,
-          details: errorText,
-          status: geminiResponse.status
-        }),
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+    
+    try {
+      const geminiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
         {
-          status: 500,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: prompt }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 4000,
+            }
+          }),
+          signal: controller.signal
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      console.log('📡 Gemini API response status:', geminiResponse.status);
+
+      if (!geminiResponse.ok) {
+        const errorText = await geminiResponse.text();
+        console.error('❌ Gemini API error:', geminiResponse.status, errorText);
+        
+        let errorMessage = 'Unknown API error';
+        if (geminiResponse.status === 400) {
+          errorMessage = 'Invalid API request - check API key format';
+        } else if (geminiResponse.status === 401) {
+          errorMessage = 'Invalid API key - check your Google AI API key';
+        } else if (geminiResponse.status === 403) {
+          errorMessage = 'API access forbidden - check API key permissions';
+        } else if (geminiResponse.status === 429) {
+          errorMessage = 'API rate limit exceeded - try again later';
+        } else if (geminiResponse.status >= 500) {
+          errorMessage = 'Google AI service temporarily unavailable';
+        }
+        
+        return new Response(
+          JSON.stringify({ 
+            error: errorMessage,
+            details: errorText,
+            status: geminiResponse.status
+          }),
+          {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              ...corsHeaders,
+            },
+          }
+        );
+      }
+
+      const geminiData = await geminiResponse.json();
+      const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      
+      console.log('🤖 AI Plan Response received, length:', aiResponse?.length);
+      
+      let plan;
+      
+      try {
+        // Clean the response and parse JSON
+        const cleanResponse = aiResponse?.replace(/```json\n?|\n?```/g, '').trim();
+        plan = JSON.parse(cleanResponse || '{}');
+        
+        console.log('📊 Plan structure validation:', {
+          hasInsights: !!plan.ai_insights,
+          hasGaps: !!plan.knowledge_gaps,
+          hasDailyPlan: !!plan.daily_plan,
+          dailyPlanLength: plan.daily_plan?.length
+        });
+        
+        // Validate the plan structure
+        if (!plan.ai_insights || !plan.knowledge_gaps || !plan.daily_plan) {
+          throw new Error('Invalid plan structure from AI');
+        }
+        
+        // Ensure daily_plan has the right number of days
+        if (plan.daily_plan.length !== duration_days) {
+          console.warn(`⚠️ Plan duration mismatch: expected ${duration_days}, got ${plan.daily_plan.length}`);
+        }
+        
+        console.log('✅ Successfully generated AI plan with', plan.daily_plan.length, 'days');
+        
+      } catch (parseError) {
+        console.error('❌ Failed to parse AI response:', parseError);
+        console.log('Raw response sample:', aiResponse?.substring(0, 500));
+        throw new Error('Failed to parse AI plan response');
+      }
+
+      return new Response(
+        JSON.stringify({ plan }),
+        {
+          status: 200,
           headers: {
             'Content-Type': 'application/json',
             ...corsHeaders,
           },
         }
       );
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      
+      if (fetchError.name === 'AbortError') {
+        console.error('⏰ Request timeout');
+        return new Response(
+          JSON.stringify({ 
+            error: 'Request timeout - Google AI API took too long to respond'
+          }),
+          {
+            status: 408,
+            headers: {
+              'Content-Type': 'application/json',
+              ...corsHeaders,
+            },
+          }
+        );
+      }
+      
+      throw fetchError;
     }
-
-    const geminiData = await geminiResponse.json();
-    const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    
-    console.log('🤖 AI Plan Response received, length:', aiResponse?.length);
-    
-    let plan;
-    
-    try {
-      // Clean the response and parse JSON
-      const cleanResponse = aiResponse?.replace(/```json\n?|\n?```/g, '').trim();
-      plan = JSON.parse(cleanResponse || '{}');
-      
-      console.log('📊 Plan structure validation:', {
-        hasInsights: !!plan.ai_insights,
-        hasGaps: !!plan.knowledge_gaps,
-        hasDailyPlan: !!plan.daily_plan,
-        dailyPlanLength: plan.daily_plan?.length
-      });
-      
-      // Validate the plan structure
-      if (!plan.ai_insights || !plan.knowledge_gaps || !plan.daily_plan) {
-        throw new Error('Invalid plan structure from AI');
-      }
-      
-      // Ensure daily_plan has the right number of days
-      if (plan.daily_plan.length !== duration_days) {
-        console.warn(`⚠️ Plan duration mismatch: expected ${duration_days}, got ${plan.daily_plan.length}`);
-      }
-      
-      console.log('✅ Successfully generated AI plan with', plan.daily_plan.length, 'days');
-      
-    } catch (parseError) {
-      console.error('❌ Failed to parse AI response:', parseError);
-      console.log('Raw response sample:', aiResponse?.substring(0, 500));
-      throw new Error('Failed to parse AI plan response');
-    }
-
-    return new Response(
-      JSON.stringify({ plan }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders,
-        },
-      }
-    );
   } catch (error) {
     console.error('💥 Error in generate-plan:', error);
     

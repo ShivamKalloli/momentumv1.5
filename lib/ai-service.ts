@@ -27,7 +27,7 @@ class AIService {
       
       // Add timeout and better error handling
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
       
       const { data, error } = await supabase.functions.invoke(functionName, {
         body: payload,
@@ -73,6 +73,15 @@ class AIService {
           throw new Error('AI service is temporarily unavailable. Please try again in a few minutes.');
         }
         
+        // Check for specific Google AI API errors
+        if (error.message?.includes('Google AI API key not configured')) {
+          throw new Error('Google AI API key is not configured. Please contact support.');
+        }
+        
+        if (error.message?.includes('Invalid API key')) {
+          throw new Error('Invalid Google AI API key. Please contact support.');
+        }
+        
         throw new Error(`AI service error: ${error.message}`);
       }
       
@@ -92,6 +101,10 @@ class AIService {
           throw new Error('API rate limit exceeded. Please wait a moment and try again.');
         }
         
+        if (data.error.includes('Google AI API key not configured')) {
+          throw new Error('Google AI API key is not configured. Please contact support.');
+        }
+        
         throw new Error(`AI function error: ${data.error}`);
       }
       
@@ -109,7 +122,8 @@ class AIService {
           error.message?.includes('Authentication') ||
           error.message?.includes('Invalid Google AI') ||
           error.message?.includes('API access forbidden') ||
-          error.message?.includes('rate limit')) {
+          error.message?.includes('rate limit') ||
+          error.message?.includes('Google AI API key')) {
         throw error;
       }
       

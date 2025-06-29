@@ -24,24 +24,16 @@ Deno.serve(async (req: Request) => {
       throw new Error('Invalid input: goal_title is required and must be a string');
     }
 
-    // Enhanced environment variable debugging
     const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
-    const allEnvKeys = Object.keys(Deno.env.toObject());
     
     console.log('🔑 API Key status:', apiKey ? `Available (${apiKey.substring(0, 10)}...)` : 'Missing');
-    console.log('🌍 Available env vars:', allEnvKeys);
 
     if (!apiKey) {
       console.error('❌ Google AI API key not found in environment');
-      console.error('💡 Available environment variables:', allEnvKeys.join(', '));
       
       return new Response(
         JSON.stringify({ 
-          error: 'Google AI API key not configured',
-          debug: {
-            availableEnvVars: allEnvKeys,
-            expectedKey: 'GOOGLE_AI_API_KEY'
-          }
+          error: 'Google AI API key not configured. Please add GOOGLE_AI_API_KEY to your Supabase Edge Functions environment variables.'
         }),
         {
           status: 500,
@@ -89,143 +81,170 @@ Format: ["Question 1?", "Question 2?", "Question 3?", "Question 4?"]`;
 
     console.log('🚀 Making request to Gemini API for questions...');
     
-    const geminiResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{ text: prompt }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            maxOutputTokens: 500,
-          }
-        })
-      }
-    );
-
-    console.log('📡 Gemini API response status:', geminiResponse.status);
-
-    if (!geminiResponse.ok) {
-      const errorText = await geminiResponse.text();
-      console.error('❌ Gemini API error:', geminiResponse.status, errorText);
-      
-      // Enhanced error handling
-      let errorMessage = 'Unknown API error';
-      if (geminiResponse.status === 400) {
-        errorMessage = 'Invalid API request - check API key format';
-      } else if (geminiResponse.status === 401) {
-        errorMessage = 'Invalid API key - check your Google AI API key';
-      } else if (geminiResponse.status === 403) {
-        errorMessage = 'API access forbidden - check API key permissions';
-      } else if (geminiResponse.status === 429) {
-        errorMessage = 'API rate limit exceeded - try again later';
-      } else if (geminiResponse.status >= 500) {
-        errorMessage = 'Google AI service temporarily unavailable';
-      }
-      
-      return new Response(
-        JSON.stringify({ 
-          error: errorMessage,
-          details: errorText,
-          status: geminiResponse.status
-        }),
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    
+    try {
+      const geminiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
         {
-          status: 500,
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{ text: prompt }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 500,
+            }
+          }),
+          signal: controller.signal
+        }
+      );
+
+      clearTimeout(timeoutId);
+
+      console.log('📡 Gemini API response status:', geminiResponse.status);
+
+      if (!geminiResponse.ok) {
+        const errorText = await geminiResponse.text();
+        console.error('❌ Gemini API error:', geminiResponse.status, errorText);
+        
+        let errorMessage = 'Unknown API error';
+        if (geminiResponse.status === 400) {
+          errorMessage = 'Invalid API request - check API key format';
+        } else if (geminiResponse.status === 401) {
+          errorMessage = 'Invalid API key - check your Google AI API key';
+        } else if (geminiResponse.status === 403) {
+          errorMessage = 'API access forbidden - check API key permissions';
+        } else if (geminiResponse.status === 429) {
+          errorMessage = 'API rate limit exceeded - try again later';
+        } else if (geminiResponse.status >= 500) {
+          errorMessage = 'Google AI service temporarily unavailable';
+        }
+        
+        return new Response(
+          JSON.stringify({ 
+            error: errorMessage,
+            details: errorText,
+            status: geminiResponse.status
+          }),
+          {
+            status: 500,
+            headers: {
+              'Content-Type': 'application/json',
+              ...corsHeaders,
+            },
+          }
+        );
+      }
+
+      const geminiData = await geminiResponse.json();
+      const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      
+      console.log('🤖 AI Questions Response received, length:', aiResponse?.length);
+      
+      let questions: string[];
+      
+      try {
+        // Clean the response and parse JSON
+        const cleanResponse = aiResponse?.replace(/```json\n?|\n?```/g, '').trim();
+        questions = JSON.parse(cleanResponse || '[]');
+        
+        // Validate that we got an array of strings
+        if (!Array.isArray(questions) || questions.length === 0 || !questions.every(q => typeof q === 'string')) {
+          throw new Error('Invalid questions format from AI');
+        }
+        
+        console.log('✅ Successfully parsed', questions.length, 'questions from AI');
+      } catch (parseError) {
+        console.error('❌ Failed to parse AI response:', parseError);
+        console.log('Raw response sample:', aiResponse?.substring(0, 200));
+        
+        // Enhanced fallback questions based on goal type
+        const goal = goal_title.toLowerCase();
+        
+        if (goal.includes('learn') || goal.includes('study')) {
+          if (goal.includes('language')) {
+            questions = [
+              'What is your current level in this language?',
+              'How much time can you dedicate to practice daily?',
+              'Do you prefer structured courses or self-study?',
+              'What specific skills do you want to focus on most (speaking, writing, reading)?'
+            ];
+          } else if (goal.includes('code') || goal.includes('program')) {
+            questions = [
+              'What is your programming experience level?',
+              'Which programming language interests you most?',
+              'Do you have a specific project in mind?',
+              'How much time can you dedicate to coding daily?'
+            ];
+          } else {
+            questions = [
+              'What is your current knowledge level in this area?',
+              'How much time can you dedicate to learning daily?',
+              'What learning resources do you prefer?',
+              'What specific outcome do you want to achieve?'
+            ];
+          }
+        } else if (goal.includes('fitness') || goal.includes('workout') || goal.includes('run')) {
+          questions = [
+            'What is your current fitness level?',
+            'How many days per week can you exercise?',
+            'Do you have access to a gym or equipment?',
+            'What is your main motivation for this goal?'
+          ];
+        } else if (goal.includes('business') || goal.includes('startup')) {
+          questions = [
+            'What is your relevant experience in this area?',
+            'What resources or budget do you have available?',
+            'What is your target timeline for initial results?',
+            'Who is your target audience or market?'
+          ];
+        } else {
+          questions = [
+            'What is your current experience level with this goal?',
+            'How much time can you realistically dedicate daily?',
+            'What resources or support do you have available?',
+            'How will you measure success and stay motivated?'
+          ];
+        }
+      }
+
+      return new Response(
+        JSON.stringify({ questions }),
+        {
+          status: 200,
           headers: {
             'Content-Type': 'application/json',
             ...corsHeaders,
           },
         }
       );
+    } catch (fetchError) {
+      clearTimeout(timeoutId);
+      
+      if (fetchError.name === 'AbortError') {
+        console.error('⏰ Request timeout');
+        return new Response(
+          JSON.stringify({ 
+            error: 'Request timeout - Google AI API took too long to respond'
+          }),
+          {
+            status: 408,
+            headers: {
+              'Content-Type': 'application/json',
+              ...corsHeaders,
+            },
+          }
+        );
+      }
+      
+      throw fetchError;
     }
-
-    const geminiData = await geminiResponse.json();
-    const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    
-    console.log('🤖 AI Questions Response received, length:', aiResponse?.length);
-    
-    let questions: string[];
-    
-    try {
-      // Clean the response and parse JSON
-      const cleanResponse = aiResponse?.replace(/```json\n?|\n?```/g, '').trim();
-      questions = JSON.parse(cleanResponse || '[]');
-      
-      // Validate that we got an array of strings
-      if (!Array.isArray(questions) || questions.length === 0 || !questions.every(q => typeof q === 'string')) {
-        throw new Error('Invalid questions format from AI');
-      }
-      
-      console.log('✅ Successfully parsed', questions.length, 'questions from AI');
-    } catch (parseError) {
-      console.error('❌ Failed to parse AI response:', parseError);
-      console.log('Raw response sample:', aiResponse?.substring(0, 200));
-      
-      // Enhanced fallback questions based on goal type
-      const goal = goal_title.toLowerCase();
-      
-      if (goal.includes('learn') || goal.includes('study')) {
-        if (goal.includes('language')) {
-          questions = [
-            'What is your current level in this language?',
-            'How much time can you dedicate to practice daily?',
-            'Do you prefer structured courses or self-study?',
-            'What specific skills do you want to focus on most (speaking, writing, reading)?'
-          ];
-        } else if (goal.includes('code') || goal.includes('program')) {
-          questions = [
-            'What is your programming experience level?',
-            'Which programming language interests you most?',
-            'Do you have a specific project in mind?',
-            'How much time can you dedicate to coding daily?'
-          ];
-        } else {
-          questions = [
-            'What is your current knowledge level in this area?',
-            'How much time can you dedicate to learning daily?',
-            'What learning resources do you prefer?',
-            'What specific outcome do you want to achieve?'
-          ];
-        }
-      } else if (goal.includes('fitness') || goal.includes('workout') || goal.includes('run')) {
-        questions = [
-          'What is your current fitness level?',
-          'How many days per week can you exercise?',
-          'Do you have access to a gym or equipment?',
-          'What is your main motivation for this goal?'
-        ];
-      } else if (goal.includes('business') || goal.includes('startup')) {
-        questions = [
-          'What is your relevant experience in this area?',
-          'What resources or budget do you have available?',
-          'What is your target timeline for initial results?',
-          'Who is your target audience or market?'
-        ];
-      } else {
-        questions = [
-          'What is your current experience level with this goal?',
-          'How much time can you realistically dedicate daily?',
-          'What resources or support do you have available?',
-          'How will you measure success and stay motivated?'
-        ];
-      }
-    }
-
-    return new Response(
-      JSON.stringify({ questions }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders,
-        },
-      }
-    );
   } catch (error) {
     console.error('💥 Error in generate-questions:', error);
     

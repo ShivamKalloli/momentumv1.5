@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "lib": ["deno.window"],
+    "strict": true
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  },
+  "fmt": {
+    "files": {
+      "include": ["**/*.ts"]
+    }
+  },
+  "tasks": {
+    "dev": "deno run --allow-net --allow-read --allow-env --watch main.ts"
+  },
+  "imports": {
+    "std/": "https://deno.land/std@0.208.0/",
+    "@supabase/functions-js": "https://esm.sh/@supabase/functions-js@2"
+  },
+  "permissions": {
+    "allow-net": true,
+    "allow-env": true,
+    "allow-read": true
+  }
+}
