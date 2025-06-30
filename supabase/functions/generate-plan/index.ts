@@ -7,6 +7,7 @@ const corsHeaders = {
 Deno.serve(async (req: Request) => {
   console.log('📋 Generate Plan Function Called');
   
+  // Handle CORS preflight
   if (req.method === "OPTIONS") {
     return new Response(null, {
       status: 200,
@@ -14,78 +15,57 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  // Wrap everything in try-catch to ensure we always return 200
   try {
-    // Get request body
     let requestBody;
+    let goal_title = '';
+    let duration_days = 30;
+    let answers_to_questions = {};
+
+    // Parse request body with fallback
     try {
-      requestBody = await req.json();
+      const bodyText = await req.text();
+      console.log('📝 Raw request body:', bodyText);
+      
+      if (bodyText) {
+        requestBody = JSON.parse(bodyText);
+        goal_title = requestBody?.goal_title || 'Achieve Goal';
+        duration_days = requestBody?.duration_days || 30;
+        answers_to_questions = requestBody?.answers_to_questions || {};
+      }
     } catch (parseError) {
       console.error('❌ Failed to parse request body:', parseError);
-      return new Response(
-        JSON.stringify({ 
-          plan: generateFallbackPlan('Achieve Goal', 30, {}),
-          debug: 'Invalid request body - using fallback plan',
-          error: 'Failed to parse request body'
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-        }
-      );
+      // Use defaults and continue
     }
 
-    const { goal_title, duration_days, answers_to_questions } = requestBody;
-    
-    console.log('📝 Plan request received:', { goal_title, duration_days, answersCount: Object.keys(answers_to_questions || {}).length });
+    console.log('📝 Plan request received:', { goal_title, duration_days, answersCount: Object.keys(answers_to_questions).length });
 
-    if (!goal_title || typeof goal_title !== 'string') {
-      return new Response(
-        JSON.stringify({ 
-          plan: generateFallbackPlan(goal_title || 'Achieve Goal', duration_days || 30, answers_to_questions || {}),
-          debug: 'Invalid goal_title - using fallback plan',
-          error: 'Invalid input: goal_title is required and must be a string'
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-        }
-      );
+    // Validate and sanitize inputs
+    if (!goal_title || typeof goal_title !== 'string' || goal_title.trim().length === 0) {
+      goal_title = 'Achieve Goal';
     }
 
-    if (!duration_days || typeof duration_days !== 'number' || duration_days < 1) {
-      return new Response(
-        JSON.stringify({ 
-          plan: generateFallbackPlan(goal_title, 30, answers_to_questions || {}),
-          debug: 'Invalid duration_days - using fallback plan',
-          error: 'Invalid input: duration_days must be a positive number'
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-        }
-      );
+    if (!duration_days || typeof duration_days !== 'number' || duration_days < 1 || duration_days > 365) {
+      duration_days = 30;
     }
 
+    if (!answers_to_questions || typeof answers_to_questions !== 'object') {
+      answers_to_questions = {};
+    }
+
+    // Get API key
     const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
-    
     console.log('🔑 API Key status:', apiKey ? `Available (${apiKey.substring(0, 10)}...)` : 'Missing');
 
+    // If no API key, use intelligent fallback
     if (!apiKey) {
-      console.error('❌ Google AI API key not found in environment');
+      console.log('⚠️ No API key found, using intelligent fallback');
+      const plan = generateIntelligentFallbackPlan(goal_title, duration_days, answers_to_questions);
       
       return new Response(
         JSON.stringify({ 
-          plan: generateFallbackPlan(goal_title, duration_days, answers_to_questions || {}),
-          debug: 'API key missing - using intelligent fallback plan'
+          plan,
+          debug: 'API key missing - used intelligent fallback plan'
         }),
         {
           status: 200,
@@ -97,14 +77,16 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Prepare context from answers
-    const answersContext = Object.entries(answers_to_questions || {})
-      .map(([question, answer]) => `Q: ${question}\nA: ${answer}`)
-      .join('\n\n');
+    // Try AI plan generation
+    try {
+      // Prepare context from answers
+      const answersContext = Object.entries(answers_to_questions)
+        .map(([question, answer]) => `Q: ${question}\nA: ${answer}`)
+        .join('\n\n');
 
-    console.log('📝 User context prepared, length:', answersContext.length);
+      console.log('📝 User context prepared, length:', answersContext.length);
 
-    const prompt = `You are "Aura," an expert AI coach specializing in creating detailed, actionable plans. Create a comprehensive ${duration_days}-day plan for achieving this goal.
+      const prompt = `You are "Aura," an expert AI coach specializing in creating detailed, actionable plans. Create a comprehensive ${duration_days}-day plan for achieving this goal.
 
 GOAL: ${goal_title}
 DURATION: ${duration_days} days
@@ -171,12 +153,11 @@ EXAMPLES OF BAD TASKS:
 
 Make the plan feel personal and achievable based on their specific situation and answers. Reference their experience level, time availability, and preferences from their responses.`;
 
-    console.log('🚀 Making request to Gemini API for plan generation...');
-    
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 45000); // 45 second timeout
-    
-    try {
+      console.log('🚀 Making request to Gemini API for plan generation...');
+      
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 40000); // 40 second timeout
+      
       const geminiResponse = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
         {
@@ -198,18 +179,17 @@ Make the plan feel personal and achievable based on their specific situation and
       );
 
       clearTimeout(timeoutId);
-
       console.log('📡 Gemini API response status:', geminiResponse.status);
 
       if (!geminiResponse.ok) {
         const errorText = await geminiResponse.text();
         console.error('❌ Gemini API error:', geminiResponse.status, errorText);
         
+        const plan = generateIntelligentFallbackPlan(goal_title, duration_days, answers_to_questions);
         return new Response(
           JSON.stringify({ 
-            plan: generateFallbackPlan(goal_title, duration_days, answers_to_questions || {}),
-            debug: `Gemini API error ${geminiResponse.status} - using intelligent fallback`,
-            error: `Gemini API error: ${geminiResponse.status}`
+            plan,
+            debug: `Gemini API error ${geminiResponse.status} - used intelligent fallback`
           }),
           {
             status: 200,
@@ -223,7 +203,6 @@ Make the plan feel personal and achievable based on their specific situation and
 
       const geminiData = await geminiResponse.json();
       const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-      
       console.log('🤖 AI Plan Response received, length:', aiResponse?.length);
       
       let plan;
@@ -255,7 +234,7 @@ Make the plan feel personal and achievable based on their specific situation and
       } catch (parseError) {
         console.error('❌ Failed to parse AI response:', parseError);
         console.log('Raw response sample:', aiResponse?.substring(0, 500));
-        plan = generateFallbackPlan(goal_title, duration_days, answers_to_questions || {});
+        plan = generateIntelligentFallbackPlan(goal_title, duration_days, answers_to_questions);
       }
 
       return new Response(
@@ -271,37 +250,35 @@ Make the plan feel personal and achievable based on their specific situation and
           },
         }
       );
-    } catch (fetchError) {
-      clearTimeout(timeoutId);
+
+    } catch (aiError) {
+      console.error('💥 AI request error:', aiError);
       
-      if (fetchError.name === 'AbortError') {
-        console.error('⏰ Request timeout');
-        return new Response(
-          JSON.stringify({ 
-            plan: generateFallbackPlan(goal_title, duration_days, answers_to_questions || {}),
-            debug: 'Request timeout - using intelligent fallback',
-            error: 'Request timeout - Google AI API took too long to respond'
-          }),
-          {
-            status: 200,
-            headers: {
-              'Content-Type': 'application/json',
-              ...corsHeaders,
-            },
-          }
-        );
-      }
-      
-      throw fetchError;
+      const plan = generateIntelligentFallbackPlan(goal_title, duration_days, answers_to_questions);
+      return new Response(
+        JSON.stringify({ 
+          plan,
+          debug: 'AI request failed - used intelligent fallback'
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+          },
+        }
+      );
     }
+
   } catch (error) {
-    console.error('💥 Error in generate-plan:', error);
+    console.error('💥 Critical error in generate-plan:', error);
     
+    // Ultimate fallback - always return something
+    const plan = generateIntelligentFallbackPlan('Achieve Goal', 30, {});
     return new Response(
       JSON.stringify({ 
-        plan: generateFallbackPlan('Achieve Goal', 30, {}),
-        debug: 'General error - using intelligent fallback',
-        error: error.message
+        plan,
+        debug: 'Critical error - used intelligent fallback plan'
       }),
       {
         status: 200,
@@ -314,75 +291,218 @@ Make the plan feel personal and achievable based on their specific situation and
   }
 });
 
-function generateFallbackPlan(goalTitle: string, durationDays: number, answers: Record<string, string>) {
-  console.log('📝 Generating fallback plan for:', goalTitle);
+function generateIntelligentFallbackPlan(goalTitle: string, durationDays: number, answers: Record<string, string>) {
+  console.log('📝 Generating intelligent fallback plan for:', goalTitle);
   
   const goal = goalTitle.toLowerCase();
   const answerValues = Object.values(answers).join(' ').toLowerCase();
   
   // Determine experience level and time commitment from answers
-  const isBeginnerLevel = answerValues.includes('beginner') || answerValues.includes('no experience') || answerValues.includes('never');
-  const hasLimitedTime = answerValues.includes('30 minutes') || answerValues.includes('limited') || answerValues.includes('busy');
+  const isBeginnerLevel = answerValues.includes('beginner') || answerValues.includes('no experience') || answerValues.includes('never') || answerValues.includes('new');
+  const hasLimitedTime = answerValues.includes('30 minutes') || answerValues.includes('limited') || answerValues.includes('busy') || answerValues.includes('little time');
+  const hasMoreTime = answerValues.includes('hour') || answerValues.includes('hours') || answerValues.includes('plenty') || answerValues.includes('flexible');
   
-  const phases = Math.ceil(durationDays / 3);
-  const daily_plan = [];
+  // Determine goal type and create specific plan
+  let daily_plan = [];
+  let ai_insights = '';
+  let knowledge_gaps = [];
   
-  for (let day = 1; day <= durationDays; day++) {
-    const phase = Math.ceil(day / phases);
-    const tasks = [];
+  if (goal.includes('learn') && (goal.includes('python') || goal.includes('programming') || goal.includes('code'))) {
+    // Python/Programming specific plan
+    ai_insights = `Your ${durationDays}-day Python learning plan is designed to take you from ${isBeginnerLevel ? 'complete beginner to confident coder' : 'your current level to advanced skills'}. ${hasLimitedTime ? 'With focused 30-45 minute sessions' : 'With dedicated practice time'}, you'll build practical skills through hands-on projects and real-world applications.`;
     
-    if (phase === 1) { // Learning phase
-      tasks.push({
-        description: isBeginnerLevel 
-          ? `Learn the basics of ${goalTitle}` 
-          : `Review fundamentals and plan approach for ${goalTitle}`,
-        estimated_duration_minutes: hasLimitedTime ? 30 : 45
-      });
-      if (!hasLimitedTime) {
+    knowledge_gaps = [
+      {
+        gap: 'Python fundamentals and syntax',
+        resource_recommendation: 'Complete "Automate the Boring Stuff with Python" by Al Sweigart (free online)'
+      },
+      {
+        gap: 'Practical coding experience',
+        resource_recommendation: 'Practice on HackerRank, LeetCode, or Codewars for daily coding challenges'
+      },
+      {
+        gap: 'Real-world project development',
+        resource_recommendation: 'Build projects from "Python Crash Course" by Eric Matthes'
+      }
+    ];
+    
+    const phases = Math.ceil(durationDays / 4);
+    for (let day = 1; day <= durationDays; day++) {
+      const phase = Math.ceil(day / phases);
+      const tasks = [];
+      
+      if (phase === 1) { // Setup and basics
+        if (day === 1) {
+          tasks.push({
+            description: 'Install Python 3.9+ and VS Code, set up your development environment',
+            estimated_duration_minutes: hasLimitedTime ? 30 : 45
+          });
+          tasks.push({
+            description: 'Write your first "Hello World" program and explore the Python REPL',
+            estimated_duration_minutes: 15
+          });
+        } else {
+          tasks.push({
+            description: `Learn Python basics: variables, data types, and basic operations (Day ${day} focus)`,
+            estimated_duration_minutes: hasLimitedTime ? 30 : 45
+          });
+          tasks.push({
+            description: 'Practice with 3-5 simple coding exercises on basic syntax',
+            estimated_duration_minutes: 15
+          });
+        }
+      } else if (phase === 2) { // Control structures
         tasks.push({
-          description: 'Research resources and create action plan',
+          description: 'Master control structures: if statements, loops, and functions',
+          estimated_duration_minutes: hasLimitedTime ? 35 : 50
+        });
+        tasks.push({
+          description: 'Build a simple calculator or number guessing game',
+          estimated_duration_minutes: 25
+        });
+      } else if (phase === 3) { // Data structures and libraries
+        tasks.push({
+          description: 'Work with lists, dictionaries, and file handling in Python',
+          estimated_duration_minutes: hasLimitedTime ? 40 : 60
+        });
+        tasks.push({
+          description: 'Explore popular libraries: requests, pandas, or matplotlib',
+          estimated_duration_minutes: 20
+        });
+      } else { // Projects and advanced topics
+        tasks.push({
+          description: 'Build a complete project: web scraper, data analyzer, or automation script',
+          estimated_duration_minutes: hasLimitedTime ? 45 : 75
+        });
+        tasks.push({
+          description: 'Code review and optimization of your projects',
           estimated_duration_minutes: 15
         });
       }
-    } else if (phase === 2) { // Practice phase
-      tasks.push({
-        description: `Practice key skills for ${goalTitle}`,
-        estimated_duration_minutes: hasLimitedTime ? 45 : 60
-      });
-      tasks.push({
-        description: 'Track progress and adjust approach',
-        estimated_duration_minutes: 15
-      });
-    } else { // Application phase
-      tasks.push({
-        description: `Apply knowledge and work on ${goalTitle}`,
-        estimated_duration_minutes: hasLimitedTime ? 60 : 90
-      });
-      tasks.push({
-        description: 'Share progress and get feedback',
-        estimated_duration_minutes: 15
-      });
+      
+      daily_plan.push({ day, tasks });
     }
+  } else if (goal.includes('fitness') || goal.includes('workout') || goal.includes('exercise')) {
+    // Fitness specific plan
+    ai_insights = `Your ${durationDays}-day fitness journey is structured to build sustainable habits and progressive strength. ${isBeginnerLevel ? 'Starting with bodyweight exercises and basic movements' : 'Building on your existing fitness base'}, you'll develop both physical strength and healthy routines.`;
     
-    daily_plan.push({ day, tasks });
-  }
-
-  return {
-    ai_insights: `Your ${durationDays}-day plan for "${goalTitle}" is structured in three phases: learning, practicing, and applying. ${isBeginnerLevel ? 'Starting with fundamentals will build a strong foundation.' : 'Building on your existing knowledge will accelerate progress.'} Stay consistent and adapt as you learn.`,
-    knowledge_gaps: [
+    knowledge_gaps = [
       {
-        gap: 'Understanding the fundamentals',
-        resource_recommendation: 'Research authoritative books, courses, or online resources in this area'
+        gap: 'Proper exercise form and technique',
+        resource_recommendation: 'Follow Fitness Blender or Athlean-X YouTube channels for form guidance'
       },
       {
-        gap: 'Practical application skills',
-        resource_recommendation: 'Find hands-on projects or exercises to practice what you learn'
+        gap: 'Nutrition and recovery knowledge',
+        resource_recommendation: 'Read "Bigger Leaner Stronger" by Michael Matthews for science-based approach'
+      },
+      {
+        gap: 'Progressive workout planning',
+        resource_recommendation: 'Use apps like Strong, Jefit, or Nike Training Club for structured programs'
+      }
+    ];
+    
+    for (let day = 1; day <= durationDays; day++) {
+      const tasks = [];
+      const weekDay = ((day - 1) % 7) + 1;
+      
+      if (weekDay <= 3 || weekDay === 6) { // Workout days
+        if (isBeginnerLevel) {
+          tasks.push({
+            description: `Beginner bodyweight workout: 3 sets of push-ups, squats, and planks (modify as needed)`,
+            estimated_duration_minutes: hasLimitedTime ? 20 : 30
+          });
+        } else {
+          tasks.push({
+            description: `Strength training session: Focus on compound movements (squats, deadlifts, push-ups, rows)`,
+            estimated_duration_minutes: hasLimitedTime ? 30 : 45
+          });
+        }
+        tasks.push({
+          description: '10-minute stretching and mobility routine',
+          estimated_duration_minutes: 10
+        });
+      } else if (weekDay === 4 || weekDay === 5) { // Active recovery
+        tasks.push({
+          description: '20-30 minute walk or light yoga session',
+          estimated_duration_minutes: hasLimitedTime ? 20 : 30
+        });
+        tasks.push({
+          description: 'Plan healthy meals and track your progress',
+          estimated_duration_minutes: 10
+        });
+      } else { // Rest day
+        tasks.push({
+          description: 'Complete rest day: focus on hydration and meal prep',
+          estimated_duration_minutes: 15
+        });
+      }
+      
+      daily_plan.push({ day, tasks });
+    }
+  } else {
+    // Generic goal plan
+    ai_insights = `Your ${durationDays}-day plan for "${goalTitle}" is structured in progressive phases: foundation building, skill development, and practical application. ${isBeginnerLevel ? 'Starting with fundamentals will create a strong base' : 'Building on your existing knowledge will accelerate progress'}.`;
+    
+    knowledge_gaps = [
+      {
+        gap: 'Foundational knowledge and skills',
+        resource_recommendation: 'Research authoritative books, courses, or online resources in this specific area'
+      },
+      {
+        gap: 'Practical application experience',
+        resource_recommendation: 'Find hands-on projects, exercises, or real-world applications to practice'
       },
       {
         gap: 'Community and mentorship',
         resource_recommendation: 'Join online communities, forums, or find mentors in this field'
       }
-    ],
+    ];
+    
+    const phases = Math.ceil(durationDays / 3);
+    for (let day = 1; day <= durationDays; day++) {
+      const phase = Math.ceil(day / phases);
+      const tasks = [];
+      
+      if (phase === 1) { // Learning phase
+        tasks.push({
+          description: isBeginnerLevel 
+            ? `Learn the fundamentals of ${goalTitle}: core concepts and basic principles` 
+            : `Review and strengthen your foundation in ${goalTitle}`,
+          estimated_duration_minutes: hasLimitedTime ? 30 : 45
+        });
+        if (!hasLimitedTime) {
+          tasks.push({
+            description: 'Research additional resources and create a detailed action plan',
+            estimated_duration_minutes: 15
+          });
+        }
+      } else if (phase === 2) { // Practice phase
+        tasks.push({
+          description: `Practice key skills and techniques for ${goalTitle}`,
+          estimated_duration_minutes: hasLimitedTime ? 40 : 60
+        });
+        tasks.push({
+          description: 'Track your progress and identify areas for improvement',
+          estimated_duration_minutes: 15
+        });
+      } else { // Application phase
+        tasks.push({
+          description: `Apply your knowledge in a real project or practical scenario for ${goalTitle}`,
+          estimated_duration_minutes: hasLimitedTime ? 50 : 75
+        });
+        tasks.push({
+          description: 'Share your progress and get feedback from others',
+          estimated_duration_minutes: 15
+        });
+      }
+      
+      daily_plan.push({ day, tasks });
+    }
+  }
+
+  return {
+    ai_insights,
+    knowledge_gaps,
     daily_plan
   };
 }
