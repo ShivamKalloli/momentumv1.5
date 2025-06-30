@@ -21,17 +21,22 @@ Deno.serve(async (req: Request) => {
     const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
     
     console.log('🔑 API Key status:', apiKey ? `Available (${apiKey.substring(0, 10)}...)` : 'Missing');
+    console.log('🔑 Full API Key length:', apiKey?.length || 0);
 
-    if (!apiKey) {
-      console.error('❌ Google AI API key not found in environment');
-      
+    const requestBody = await req.json();
+    const { input_text } = requestBody;
+    
+    console.log('📝 Input received:', input_text);
+
+    if (!input_text || typeof input_text !== 'string') {
+      console.log('❌ Invalid input, using fallback');
       return new Response(
         JSON.stringify({ 
-          error: 'Google AI API key not configured. Please add GOOGLE_AI_API_KEY to your Supabase Edge Functions environment variables.',
-          complexity: 'Complex Goal' // Safe fallback
+          complexity: 'Complex Goal',
+          debug: 'Invalid input - defaulting to Complex Goal'
         }),
         {
-          status: 200, // Changed from 500 to 200 to avoid non-2xx error
+          status: 200,
           headers: {
             'Content-Type': 'application/json',
             ...corsHeaders,
@@ -40,19 +45,35 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const requestBody = await req.json();
-    const { input_text } = requestBody;
-    
-    console.log('📝 Input received:', input_text);
-
-    if (!input_text || typeof input_text !== 'string') {
+    if (!apiKey) {
+      console.error('❌ Google AI API key not found in environment');
+      
+      // Intelligent fallback logic
+      const text = input_text.toLowerCase().trim();
+      const simpleKeywords = ['call', 'email', 'send', 'buy', 'order', 'book', 'schedule', 'remind', 'text', 'message', 'pick up', 'drop off', 'pay', 'check', 'review', 'update', 'fix', 'clean', 'organize'];
+      const complexKeywords = ['learn', 'master', 'achieve', 'build', 'create', 'develop', 'improve', 'plan', 'start', 'launch', 'study', 'practice', 'train', 'prepare', 'establish', 'design', 'become'];
+      const timeIndicators = ['days', 'weeks', 'months', 'year', 'daily', 'weekly', 'monthly'];
+      
+      const hasTimeIndicator = timeIndicators.some(indicator => text.includes(indicator));
+      const hasSimpleKeywords = simpleKeywords.some(keyword => text.includes(keyword));
+      const hasComplexKeywords = complexKeywords.some(keyword => text.includes(keyword));
+      
+      let complexity: 'Simple Task' | 'Complex Goal';
+      if (hasSimpleKeywords && !hasComplexKeywords && !hasTimeIndicator && text.length < 50) {
+        complexity = 'Simple Task';
+      } else if (hasComplexKeywords || hasTimeIndicator || text.length > 100) {
+        complexity = 'Complex Goal';
+      } else {
+        complexity = text.length < 30 && !text.includes(' to ') ? 'Simple Task' : 'Complex Goal';
+      }
+      
       return new Response(
         JSON.stringify({ 
-          error: 'Invalid input: input_text is required and must be a string',
-          complexity: 'Complex Goal'
+          complexity,
+          debug: 'API key missing - used intelligent fallback'
         }),
         {
-          status: 200, // Changed from 400 to 200
+          status: 200,
           headers: {
             'Content-Type': 'application/json',
             ...corsHeaders,
@@ -85,6 +106,7 @@ Respond with EXACTLY one of these two phrases:
 Nothing else.`;
 
     console.log('🚀 Making request to Gemini API...');
+    console.log('🔗 API URL:', `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey.substring(0, 10)}...`);
     
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
@@ -113,33 +135,39 @@ Nothing else.`;
       clearTimeout(timeoutId);
 
       console.log('📡 Gemini API response status:', geminiResponse.status);
+      console.log('📡 Gemini API response headers:', Object.fromEntries(geminiResponse.headers.entries()));
 
       if (!geminiResponse.ok) {
         const errorText = await geminiResponse.text();
         console.error('❌ Gemini API error:', geminiResponse.status, errorText);
         
-        let errorMessage = 'Unknown API error';
-        if (geminiResponse.status === 400) {
-          errorMessage = 'Invalid API request - check API key format';
-        } else if (geminiResponse.status === 401) {
-          errorMessage = 'Invalid API key - check your Google AI API key';
-        } else if (geminiResponse.status === 403) {
-          errorMessage = 'API access forbidden - check API key permissions';
-        } else if (geminiResponse.status === 429) {
-          errorMessage = 'API rate limit exceeded - try again later';
-        } else if (geminiResponse.status >= 500) {
-          errorMessage = 'Google AI service temporarily unavailable';
+        // Intelligent fallback on API error
+        const text = input_text.toLowerCase().trim();
+        const simpleKeywords = ['call', 'email', 'send', 'buy', 'order', 'book', 'schedule', 'remind', 'text', 'message', 'pick up', 'drop off', 'pay', 'check', 'review', 'update', 'fix', 'clean', 'organize'];
+        const complexKeywords = ['learn', 'master', 'achieve', 'build', 'create', 'develop', 'improve', 'plan', 'start', 'launch', 'study', 'practice', 'train', 'prepare', 'establish', 'design', 'become'];
+        const timeIndicators = ['days', 'weeks', 'months', 'year', 'daily', 'weekly', 'monthly'];
+        
+        const hasTimeIndicator = timeIndicators.some(indicator => text.includes(indicator));
+        const hasSimpleKeywords = simpleKeywords.some(keyword => text.includes(keyword));
+        const hasComplexKeywords = complexKeywords.some(keyword => text.includes(keyword));
+        
+        let complexity: 'Simple Task' | 'Complex Goal';
+        if (hasSimpleKeywords && !hasComplexKeywords && !hasTimeIndicator && text.length < 50) {
+          complexity = 'Simple Task';
+        } else if (hasComplexKeywords || hasTimeIndicator || text.length > 100) {
+          complexity = 'Complex Goal';
+        } else {
+          complexity = text.length < 30 && !text.includes(' to ') ? 'Simple Task' : 'Complex Goal';
         }
         
         return new Response(
           JSON.stringify({ 
-            error: errorMessage,
-            details: errorText,
-            status: geminiResponse.status,
-            complexity: 'Complex Goal'
+            complexity,
+            debug: `API error ${geminiResponse.status} - used intelligent fallback`,
+            error: errorText
           }),
           {
-            status: 200, // Changed from 500 to 200
+            status: 200,
             headers: {
               'Content-Type': 'application/json',
               ...corsHeaders,
@@ -150,6 +178,7 @@ Nothing else.`;
 
       const geminiData = await geminiResponse.json();
       console.log('🤖 Gemini response received');
+      console.log('🤖 Gemini response structure:', JSON.stringify(geminiData, null, 2));
       
       const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
       console.log('🤖 AI Response:', aiResponse);
@@ -185,7 +214,11 @@ Nothing else.`;
       console.log('✅ Final classification:', complexity);
 
       return new Response(
-        JSON.stringify({ complexity }),
+        JSON.stringify({ 
+          complexity,
+          debug: 'AI classification successful',
+          ai_response: aiResponse
+        }),
         {
           status: 200,
           headers: {
@@ -197,24 +230,45 @@ Nothing else.`;
     } catch (fetchError) {
       clearTimeout(timeoutId);
       
+      console.error('💥 Fetch error:', fetchError);
+      
       if (fetchError.name === 'AbortError') {
         console.error('⏰ Request timeout');
-        return new Response(
-          JSON.stringify({ 
-            error: 'Request timeout - Google AI API took too long to respond',
-            complexity: 'Complex Goal'
-          }),
-          {
-            status: 200, // Changed from 408 to 200
-            headers: {
-              'Content-Type': 'application/json',
-              ...corsHeaders,
-            },
-          }
-        );
       }
       
-      throw fetchError;
+      // Intelligent fallback on fetch error
+      const text = input_text.toLowerCase().trim();
+      const simpleKeywords = ['call', 'email', 'send', 'buy', 'order', 'book', 'schedule', 'remind', 'text', 'message', 'pick up', 'drop off', 'pay', 'check', 'review', 'update', 'fix', 'clean', 'organize'];
+      const complexKeywords = ['learn', 'master', 'achieve', 'build', 'create', 'develop', 'improve', 'plan', 'start', 'launch', 'study', 'practice', 'train', 'prepare', 'establish', 'design', 'become'];
+      const timeIndicators = ['days', 'weeks', 'months', 'year', 'daily', 'weekly', 'monthly'];
+      
+      const hasTimeIndicator = timeIndicators.some(indicator => text.includes(indicator));
+      const hasSimpleKeywords = simpleKeywords.some(keyword => text.includes(keyword));
+      const hasComplexKeywords = complexKeywords.some(keyword => text.includes(keyword));
+      
+      let complexity: 'Simple Task' | 'Complex Goal';
+      if (hasSimpleKeywords && !hasComplexKeywords && !hasTimeIndicator && text.length < 50) {
+        complexity = 'Simple Task';
+      } else if (hasComplexKeywords || hasTimeIndicator || text.length > 100) {
+        complexity = 'Complex Goal';
+      } else {
+        complexity = text.length < 30 && !text.includes(' to ') ? 'Simple Task' : 'Complex Goal';
+      }
+      
+      return new Response(
+        JSON.stringify({ 
+          complexity,
+          debug: 'Fetch error - used intelligent fallback',
+          error: fetchError.message
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+          },
+        }
+      );
     }
   } catch (error) {
     console.error('💥 Error in analyze-complexity:', error);
@@ -226,12 +280,12 @@ Nothing else.`;
     
     return new Response(
       JSON.stringify({ 
-        error: 'Failed to analyze complexity',
-        message: error.message,
-        complexity: 'Complex Goal' // Safe default
+        complexity: 'Complex Goal',
+        debug: 'General error - defaulting to Complex Goal',
+        error: error.message
       }),
       {
-        status: 200, // Changed from 500 to 200
+        status: 200,
         headers: {
           'Content-Type': 'application/json',
           ...corsHeaders,

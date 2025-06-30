@@ -47,78 +47,36 @@ class AIService {
       
       if (error) {
         console.error(`❌ Supabase function error for ${functionName}:`, error);
-        
-        // Enhanced error handling with specific status codes
-        if (error.message?.includes('Failed to fetch') || error.message?.includes('network')) {
-          throw new Error('Network connection failed. Please check your internet connection and try again.');
-        }
-        
-        if (error.message?.includes('Function not found') || error.message?.includes('404')) {
-          throw new Error('AI service is temporarily unavailable. Please try again later.');
-        }
-        
-        if (error.message?.includes('401') || error.message?.includes('unauthorized')) {
-          throw new Error('Authentication failed. Please check your Supabase configuration.');
-        }
-        
-        if (error.message?.includes('403')) {
-          throw new Error('API access forbidden. Please check your Google AI API key permissions.');
-        }
-        
-        if (error.message?.includes('429')) {
-          throw new Error('API rate limit exceeded. Please wait a moment and try again.');
-        }
-        
-        if (error.message?.includes('500') || error.message?.includes('Internal Server Error')) {
-          throw new Error('AI service is temporarily unavailable. Please try again in a few minutes.');
-        }
-        
-        // Check for specific Google AI API errors
-        if (error.message?.includes('Google AI API key not configured')) {
-          throw new Error('Google AI API key is not configured. Please contact support.');
-        }
-        
-        if (error.message?.includes('Invalid API key')) {
-          throw new Error('Invalid Google AI API key. Please contact support.');
-        }
-        
         throw new Error(`AI service error: ${error.message}`);
-      }
-      
-      // Handle cases where the function returns an error in the response data
-      if (data?.error) {
-        console.log(`⚠️ AI function returned error for ${functionName}, but continuing with fallback:`, data.error);
-        
-        // Don't throw error here - let the calling function handle the fallback data
-        // The Edge Functions now return status 200 with error info and fallback data
       }
       
       if (!data) {
         throw new Error('No response received from AI service');
       }
       
+      // Check if the response contains debug info (indicates AI worked or used intelligent fallback)
+      if (data.debug) {
+        console.log(`🔍 Debug info for ${functionName}:`, data.debug);
+      }
+      
+      // Check if AI actually worked vs fallback
+      if (data.debug?.includes('AI') && !data.debug?.includes('fallback')) {
+        console.log(`✅ ${functionName}: AI successfully processed request`);
+      } else {
+        console.log(`⚠️ ${functionName}: Using fallback (AI may not be working)`);
+      }
+      
       return data;
     } catch (error: any) {
       console.error(`💥 Failed to call AI function ${functionName}:`, error);
-      
-      // If it's already our custom error, re-throw it
-      if (error.message?.includes('Network connection') || 
-          error.message?.includes('AI service') || 
-          error.message?.includes('Authentication') ||
-          error.message?.includes('Invalid Google AI') ||
-          error.message?.includes('API access forbidden') ||
-          error.message?.includes('rate limit') ||
-          error.message?.includes('Google AI API key')) {
-        throw error;
-      }
       
       // Handle AbortError (timeout)
       if (error.name === 'AbortError') {
         throw new Error('Request timed out. The AI service is taking too long to respond. Please try again.');
       }
       
-      // Generic error
-      throw new Error('Failed to connect to AI service. Please check your internet connection and try again.');
+      // Re-throw the error for the calling function to handle
+      throw error;
     }
   }
 
