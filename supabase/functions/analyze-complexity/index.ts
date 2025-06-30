@@ -5,42 +5,39 @@ const corsHeaders = {
 };
 
 Deno.serve(async (req: Request) => {
-  console.log('🔍 Analyze Complexity Function Called');
-  console.log('📋 Request method:', req.method);
-  console.log('🌐 Request URL:', req.url);
-  
-  // Handle CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 200,
-      headers: corsHeaders,
-    });
-  }
-
-  // Wrap everything in try-catch to ensure we always return 200
+  // Always wrap in try-catch to guarantee 200 response
   try {
-    let requestBody;
+    console.log('🔍 Analyze Complexity Function Called');
+    console.log('📋 Request method:', req.method);
+    
+    if (req.method === "OPTIONS") {
+      return new Response(null, {
+        status: 200,
+        headers: corsHeaders,
+      });
+    }
+
     let input_text = '';
 
-    // Parse request body with fallback
+    // Safely parse request body
     try {
       const bodyText = await req.text();
-      console.log('📝 Raw request body:', bodyText);
+      console.log('📝 Raw request body length:', bodyText?.length || 0);
       
       if (bodyText) {
-        requestBody = JSON.parse(bodyText);
+        const requestBody = JSON.parse(bodyText);
         input_text = requestBody?.input_text || '';
       }
     } catch (parseError) {
-      console.error('❌ Failed to parse request body:', parseError);
-      input_text = 'default goal'; // Use default to continue processing
+      console.error('❌ Request parsing error:', parseError.message);
+      // Continue with empty input_text
     }
 
-    console.log('📝 Input received:', input_text);
+    console.log('📝 Processing input:', input_text);
 
-    // Validate input with fallback
+    // Validate input
     if (!input_text || typeof input_text !== 'string' || input_text.trim().length === 0) {
-      console.log('❌ Invalid input, using fallback');
+      console.log('⚠️ Invalid input, using fallback');
       return new Response(
         JSON.stringify({ 
           complexity: 'Complex Goal',
@@ -56,13 +53,12 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Get API key
+    // Check API key
     const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
-    console.log('🔑 API Key status:', apiKey ? `Available (${apiKey.substring(0, 10)}...)` : 'Missing');
+    console.log('🔑 API Key available:', !!apiKey);
 
-    // If no API key, use intelligent fallback
     if (!apiKey) {
-      console.log('⚠️ No API key found, using intelligent fallback');
+      console.log('⚠️ No API key, using intelligent fallback');
       const complexity = getIntelligentFallbackComplexity(input_text);
       
       return new Response(
@@ -80,68 +76,59 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    // Try AI classification
+    // Try AI classification with timeout
     try {
-      const prompt = `You are an intelligent task analyzer. Analyze this user input: "${input_text}"
-
-Classify it as either "Simple Task" or "Complex Goal" based on these criteria:
-
-SIMPLE TASK:
-- Single, immediate action that can be completed quickly (within a day)
-- No learning or skill development required
-- Direct, actionable items
-- Examples: "Call John", "Buy groceries", "Send email", "Book appointment", "Pay bills"
-
-COMPLEX GOAL:
-- Requires multiple steps over time
-- Involves learning, skill development, or planning
-- Takes days, weeks, or months to achieve
-- Requires breaking down into smaller tasks
-- Examples: "Learn Spanish", "Get fit", "Start a business", "Learn to code", "Write a book"
-
-Respond with EXACTLY one of these two phrases:
-- "Simple Task"
-- "Complex Goal"
-
-Nothing else.`;
-
-      console.log('🚀 Making request to Gemini API...');
+      console.log('🚀 Attempting AI classification...');
       
+      const prompt = `Analyze this user input: "${input_text}"
+
+Classify as either "Simple Task" or "Complex Goal":
+
+SIMPLE TASK: Single action, completed quickly, no learning required
+Examples: "Call John", "Buy groceries", "Send email"
+
+COMPLEX GOAL: Multiple steps, learning/development, takes time
+Examples: "Learn Spanish", "Get fit", "Start business"
+
+Respond with EXACTLY: "Simple Task" or "Complex Goal"`;
+
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 20000);
       
-      const geminiResponse = await fetch(
+      const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            contents: [{
-              parts: [{ text: prompt }]
-            }],
-            generationConfig: {
-              temperature: 0.1,
-              maxOutputTokens: 10,
-            }
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 10 }
           }),
           signal: controller.signal
         }
       );
 
       clearTimeout(timeoutId);
-      console.log('📡 Gemini API response status:', geminiResponse.status);
+      console.log('📡 AI response status:', response.status);
 
-      if (!geminiResponse.ok) {
-        const errorText = await geminiResponse.text();
-        console.error('❌ Gemini API error:', geminiResponse.status, errorText);
+      if (response.ok) {
+        const data = await response.json();
+        const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+        console.log('🤖 AI response:', aiResponse);
         
-        const complexity = getIntelligentFallbackComplexity(input_text);
+        let complexity: 'Simple Task' | 'Complex Goal';
+        if (aiResponse?.includes('Simple Task')) {
+          complexity = 'Simple Task';
+        } else if (aiResponse?.includes('Complex Goal')) {
+          complexity = 'Complex Goal';
+        } else {
+          complexity = getIntelligentFallbackComplexity(input_text);
+        }
+
         return new Response(
           JSON.stringify({ 
             complexity,
-            debug: `Gemini API error ${geminiResponse.status} - used intelligent fallback`
+            debug: 'AI classification successful'
           }),
           {
             status: 200,
@@ -151,47 +138,18 @@ Nothing else.`;
             },
           }
         );
-      }
-
-      const geminiData = await geminiResponse.json();
-      const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-      console.log('🤖 AI Response:', aiResponse);
-      
-      let complexity: 'Simple Task' | 'Complex Goal';
-      
-      if (aiResponse?.includes('Simple Task')) {
-        complexity = 'Simple Task';
-      } else if (aiResponse?.includes('Complex Goal')) {
-        complexity = 'Complex Goal';
       } else {
-        console.log('⚠️ AI response unclear, using intelligent fallback');
-        complexity = getIntelligentFallbackComplexity(input_text);
+        throw new Error(`AI API error: ${response.status}`);
       }
-
-      console.log('✅ Final classification:', complexity);
-
-      return new Response(
-        JSON.stringify({ 
-          complexity,
-          debug: 'AI classification successful'
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-        }
-      );
 
     } catch (aiError) {
-      console.error('💥 AI request error:', aiError);
-      
+      console.error('💥 AI error:', aiError.message);
       const complexity = getIntelligentFallbackComplexity(input_text);
+      
       return new Response(
         JSON.stringify({ 
           complexity,
-          debug: 'AI request failed - used intelligent fallback'
+          debug: `AI failed (${aiError.message}) - used intelligent fallback`
         }),
         {
           status: 200,
@@ -204,13 +162,12 @@ Nothing else.`;
     }
 
   } catch (error) {
-    console.error('💥 Critical error in analyze-complexity:', error);
+    console.error('💥 Critical error:', error.message);
     
-    // Ultimate fallback - always return something
     return new Response(
       JSON.stringify({ 
         complexity: 'Complex Goal',
-        debug: 'Critical error - defaulting to Complex Goal'
+        debug: `Critical error: ${error.message}`
       }),
       {
         status: 200,
@@ -226,41 +183,29 @@ Nothing else.`;
 function getIntelligentFallbackComplexity(inputText: string): 'Simple Task' | 'Complex Goal' {
   const text = inputText.toLowerCase().trim();
   
-  // Simple task indicators
   const simpleKeywords = [
     'call', 'email', 'send', 'buy', 'order', 'book', 'schedule',
     'remind', 'text', 'message', 'pick up', 'drop off', 'pay',
-    'check', 'review', 'update', 'fix', 'clean', 'organize',
-    'submit', 'download', 'upload', 'install', 'delete'
+    'check', 'review', 'update', 'fix', 'clean', 'organize'
   ];
   
-  // Complex goal indicators
   const complexKeywords = [
     'learn', 'master', 'achieve', 'build', 'create', 'develop',
     'improve', 'plan', 'start', 'launch', 'study', 'practice',
-    'train', 'prepare', 'establish', 'design', 'become',
-    'understand', 'explore', 'discover', 'research'
+    'train', 'prepare', 'establish', 'design', 'become'
   ];
   
-  // Time indicators suggest complexity
-  const timeIndicators = ['days', 'weeks', 'months', 'year', 'daily', 'weekly', 'monthly'];
-  const hasTimeIndicator = timeIndicators.some(indicator => text.includes(indicator));
+  const timeIndicators = ['days', 'weeks', 'months', 'year', 'daily', 'weekly'];
   
-  // Check for keywords
-  const hasSimpleKeywords = simpleKeywords.some(keyword => text.includes(keyword));
-  const hasComplexKeywords = complexKeywords.some(keyword => text.includes(keyword));
+  const hasSimple = simpleKeywords.some(k => text.includes(k));
+  const hasComplex = complexKeywords.some(k => text.includes(k));
+  const hasTime = timeIndicators.some(k => text.includes(k));
   
-  // Decision logic
-  if (hasSimpleKeywords && !hasComplexKeywords && !hasTimeIndicator && text.length < 50) {
-    console.log('📝 Fallback classification: Simple Task');
+  if (hasSimple && !hasComplex && !hasTime && text.length < 50) {
     return 'Simple Task';
-  } else if (hasComplexKeywords || hasTimeIndicator || text.length > 100) {
-    console.log('📝 Fallback classification: Complex Goal');
+  } else if (hasComplex || hasTime || text.length > 100) {
     return 'Complex Goal';
   } else {
-    // Default based on length and structure
-    const result = text.length < 30 && !text.includes(' to ') ? 'Simple Task' : 'Complex Goal';
-    console.log('📝 Fallback classification:', result);
-    return result;
+    return text.length < 30 ? 'Simple Task' : 'Complex Goal';
   }
 }

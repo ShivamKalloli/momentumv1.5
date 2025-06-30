@@ -102,6 +102,18 @@ class AIService {
     }
   }
 
+  async testConnection(): Promise<boolean> {
+    try {
+      console.log('🧪 Testing AI service connection...');
+      const response = await this.callAIFunction('test-function', {});
+      console.log('✅ Test function response:', response);
+      return response.success === true;
+    } catch (error) {
+      console.error('❌ Test function failed:', error);
+      return false;
+    }
+  }
+
   async analyzeComplexity(inputText: string): Promise<'Simple Task' | 'Complex Goal'> {
     try {
       console.log('🔍 Analyzing complexity for:', inputText);
