@@ -85,27 +85,12 @@ class AIService {
         throw new Error(`AI service error: ${error.message}`);
       }
       
+      // Handle cases where the function returns an error in the response data
       if (data?.error) {
-        console.error(`❌ AI function returned error for ${functionName}:`, data.error);
+        console.log(`⚠️ AI function returned error for ${functionName}, but continuing with fallback:`, data.error);
         
-        // Handle specific API errors from the edge function
-        if (data.error.includes('Invalid API key')) {
-          throw new Error('Invalid Google AI API key. Please check your API key configuration.');
-        }
-        
-        if (data.error.includes('API access forbidden')) {
-          throw new Error('Google AI API access forbidden. Please check your API key permissions.');
-        }
-        
-        if (data.error.includes('rate limit')) {
-          throw new Error('API rate limit exceeded. Please wait a moment and try again.');
-        }
-        
-        if (data.error.includes('Google AI API key not configured')) {
-          throw new Error('Google AI API key is not configured. Please contact support.');
-        }
-        
-        throw new Error(`AI function error: ${data.error}`);
+        // Don't throw error here - let the calling function handle the fallback data
+        // The Edge Functions now return status 200 with error info and fallback data
       }
       
       if (!data) {

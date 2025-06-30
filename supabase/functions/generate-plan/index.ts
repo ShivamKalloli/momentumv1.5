@@ -21,11 +21,35 @@ Deno.serve(async (req: Request) => {
     console.log('📝 Plan request received:', { goal_title, duration_days, answersCount: Object.keys(answers_to_questions || {}).length });
 
     if (!goal_title || typeof goal_title !== 'string') {
-      throw new Error('Invalid input: goal_title is required and must be a string');
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid input: goal_title is required and must be a string',
+          plan: generateFallbackPlan(goal_title || 'Achieve Goal', duration_days || 30, answers_to_questions || {})
+        }),
+        {
+          status: 200, // Changed from 400 to 200
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+          },
+        }
+      );
     }
 
     if (!duration_days || typeof duration_days !== 'number' || duration_days < 1) {
-      throw new Error('Invalid input: duration_days must be a positive number');
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid input: duration_days must be a positive number',
+          plan: generateFallbackPlan(goal_title, 30, answers_to_questions || {})
+        }),
+        {
+          status: 200, // Changed from 400 to 200
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+          },
+        }
+      );
     }
 
     const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
@@ -37,10 +61,11 @@ Deno.serve(async (req: Request) => {
       
       return new Response(
         JSON.stringify({ 
-          error: 'Google AI API key not configured. Please add GOOGLE_AI_API_KEY to your Supabase Edge Functions environment variables.'
+          error: 'Google AI API key not configured. Using fallback plan.',
+          plan: generateFallbackPlan(goal_title, duration_days, answers_to_questions || {})
         }),
         {
-          status: 500,
+          status: 200, // Changed from 500 to 200
           headers: {
             'Content-Type': 'application/json',
             ...corsHeaders,
@@ -157,27 +182,13 @@ Make the plan feel personal and achievable based on their specific situation and
         const errorText = await geminiResponse.text();
         console.error('❌ Gemini API error:', geminiResponse.status, errorText);
         
-        let errorMessage = 'Unknown API error';
-        if (geminiResponse.status === 400) {
-          errorMessage = 'Invalid API request - check API key format';
-        } else if (geminiResponse.status === 401) {
-          errorMessage = 'Invalid API key - check your Google AI API key';
-        } else if (geminiResponse.status === 403) {
-          errorMessage = 'API access forbidden - check API key permissions';
-        } else if (geminiResponse.status === 429) {
-          errorMessage = 'API rate limit exceeded - try again later';
-        } else if (geminiResponse.status >= 500) {
-          errorMessage = 'Google AI service temporarily unavailable';
-        }
-        
         return new Response(
           JSON.stringify({ 
-            error: errorMessage,
-            details: errorText,
-            status: geminiResponse.status
+            error: `Gemini API error: ${geminiResponse.status}`,
+            plan: generateFallbackPlan(goal_title, duration_days, answers_to_questions || {})
           }),
           {
-            status: 500,
+            status: 200, // Changed from 500 to 200
             headers: {
               'Content-Type': 'application/json',
               ...corsHeaders,
@@ -220,7 +231,7 @@ Make the plan feel personal and achievable based on their specific situation and
       } catch (parseError) {
         console.error('❌ Failed to parse AI response:', parseError);
         console.log('Raw response sample:', aiResponse?.substring(0, 500));
-        throw new Error('Failed to parse AI plan response');
+        plan = generateFallbackPlan(goal_title, duration_days, answers_to_questions || {});
       }
 
       return new Response(
@@ -240,10 +251,11 @@ Make the plan feel personal and achievable based on their specific situation and
         console.error('⏰ Request timeout');
         return new Response(
           JSON.stringify({ 
-            error: 'Request timeout - Google AI API took too long to respond'
+            error: 'Request timeout - Google AI API took too long to respond',
+            plan: generateFallbackPlan(goal_title, duration_days, answers_to_questions || {})
           }),
           {
-            status: 408,
+            status: 200, // Changed from 408 to 200
             headers: {
               'Content-Type': 'application/json',
               ...corsHeaders,
@@ -260,10 +272,11 @@ Make the plan feel personal and achievable based on their specific situation and
     return new Response(
       JSON.stringify({ 
         error: 'Failed to generate plan',
-        message: error.message
+        message: error.message,
+        plan: generateFallbackPlan('Achieve Goal', 30, {})
       }),
       {
-        status: 500,
+        status: 200, // Changed from 500 to 200
         headers: {
           'Content-Type': 'application/json',
           ...corsHeaders,
@@ -272,3 +285,76 @@ Make the plan feel personal and achievable based on their specific situation and
     );
   }
 });
+
+function generateFallbackPlan(goalTitle: string, durationDays: number, answers: Record<string, string>) {
+  console.log('📝 Generating fallback plan for:', goalTitle);
+  
+  const goal = goalTitle.toLowerCase();
+  const answerValues = Object.values(answers).join(' ').toLowerCase();
+  
+  // Determine experience level and time commitment from answers
+  const isBeginnerLevel = answerValues.includes('beginner') || answerValues.includes('no experience') || answerValues.includes('never');
+  const hasLimitedTime = answerValues.includes('30 minutes') || answerValues.includes('limited') || answerValues.includes('busy');
+  
+  const phases = Math.ceil(durationDays / 3);
+  const daily_plan = [];
+  
+  for (let day = 1; day <= durationDays; day++) {
+    const phase = Math.ceil(day / phases);
+    const tasks = [];
+    
+    if (phase === 1) { // Learning phase
+      tasks.push({
+        description: isBeginnerLevel 
+          ? `Learn the basics of ${goalTitle}` 
+          : `Review fundamentals and plan approach for ${goalTitle}`,
+        estimated_duration_minutes: hasLimitedTime ? 30 : 45
+      });
+      if (!hasLimitedTime) {
+        tasks.push({
+          description: 'Research resources and create action plan',
+          estimated_duration_minutes: 15
+        });
+      }
+    } else if (phase === 2) { // Practice phase
+      tasks.push({
+        description: `Practice key skills for ${goalTitle}`,
+        estimated_duration_minutes: hasLimitedTime ? 45 : 60
+      });
+      tasks.push({
+        description: 'Track progress and adjust approach',
+        estimated_duration_minutes: 15
+      });
+    } else { // Application phase
+      tasks.push({
+        description: `Apply knowledge and work on ${goalTitle}`,
+        estimated_duration_minutes: hasLimitedTime ? 60 : 90
+      });
+      tasks.push({
+        description: 'Share progress and get feedback',
+        estimated_duration_minutes: 15
+      });
+    }
+    
+    daily_plan.push({ day, tasks });
+  }
+
+  return {
+    ai_insights: `Your ${durationDays}-day plan for "${goalTitle}" is structured in three phases: learning, practicing, and applying. ${isBeginnerLevel ? 'Starting with fundamentals will build a strong foundation.' : 'Building on your existing knowledge will accelerate progress.'} Stay consistent and adapt as you learn.`,
+    knowledge_gaps: [
+      {
+        gap: 'Understanding the fundamentals',
+        resource_recommendation: 'Research authoritative books, courses, or online resources in this area'
+      },
+      {
+        gap: 'Practical application skills',
+        resource_recommendation: 'Find hands-on projects or exercises to practice what you learn'
+      },
+      {
+        gap: 'Community and mentorship',
+        resource_recommendation: 'Join online communities, forums, or find mentors in this field'
+      }
+    ],
+    daily_plan
+  };
+}

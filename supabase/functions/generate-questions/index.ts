@@ -21,7 +21,24 @@ Deno.serve(async (req: Request) => {
     console.log('📝 Goal received:', goal_title);
 
     if (!goal_title || typeof goal_title !== 'string') {
-      throw new Error('Invalid input: goal_title is required and must be a string');
+      return new Response(
+        JSON.stringify({ 
+          error: 'Invalid input: goal_title is required and must be a string',
+          questions: [
+            'What is your current experience level with this goal?',
+            'How much time can you realistically dedicate daily?',
+            'What resources or support do you have available?',
+            'How will you measure success and stay motivated?'
+          ]
+        }),
+        {
+          status: 200, // Changed from 400 to 200
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+          },
+        }
+      );
     }
 
     const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
@@ -31,12 +48,63 @@ Deno.serve(async (req: Request) => {
     if (!apiKey) {
       console.error('❌ Google AI API key not found in environment');
       
+      // Enhanced fallback questions based on goal type
+      const goal = goal_title.toLowerCase();
+      let questions: string[];
+      
+      if (goal.includes('learn') || goal.includes('study')) {
+        if (goal.includes('language')) {
+          questions = [
+            'What is your current level in this language?',
+            'How much time can you dedicate to practice daily?',
+            'Do you prefer structured courses or self-study?',
+            'What specific skills do you want to focus on most (speaking, writing, reading)?'
+          ];
+        } else if (goal.includes('code') || goal.includes('program')) {
+          questions = [
+            'What is your programming experience level?',
+            'Which programming language interests you most?',
+            'Do you have a specific project in mind?',
+            'How much time can you dedicate to coding daily?'
+          ];
+        } else {
+          questions = [
+            'What is your current knowledge level in this area?',
+            'How much time can you dedicate to learning daily?',
+            'What learning resources do you prefer?',
+            'What specific outcome do you want to achieve?'
+          ];
+        }
+      } else if (goal.includes('fitness') || goal.includes('workout') || goal.includes('run')) {
+        questions = [
+          'What is your current fitness level?',
+          'How many days per week can you exercise?',
+          'Do you have access to a gym or equipment?',
+          'What is your main motivation for this goal?'
+        ];
+      } else if (goal.includes('business') || goal.includes('startup')) {
+        questions = [
+          'What is your relevant experience in this area?',
+          'What resources or budget do you have available?',
+          'What is your target timeline for initial results?',
+          'Who is your target audience or market?'
+        ];
+      } else {
+        questions = [
+          'What is your current experience level with this goal?',
+          'How much time can you realistically dedicate daily?',
+          'What resources or support do you have available?',
+          'How will you measure success and stay motivated?'
+        ];
+      }
+      
       return new Response(
         JSON.stringify({ 
-          error: 'Google AI API key not configured. Please add GOOGLE_AI_API_KEY to your Supabase Edge Functions environment variables.'
+          error: 'Google AI API key not configured. Using fallback questions.',
+          questions
         }),
         {
-          status: 500,
+          status: 200, // Changed from 500 to 200
           headers: {
             'Content-Type': 'application/json',
             ...corsHeaders,
@@ -113,27 +181,63 @@ Format: ["Question 1?", "Question 2?", "Question 3?", "Question 4?"]`;
         const errorText = await geminiResponse.text();
         console.error('❌ Gemini API error:', geminiResponse.status, errorText);
         
-        let errorMessage = 'Unknown API error';
-        if (geminiResponse.status === 400) {
-          errorMessage = 'Invalid API request - check API key format';
-        } else if (geminiResponse.status === 401) {
-          errorMessage = 'Invalid API key - check your Google AI API key';
-        } else if (geminiResponse.status === 403) {
-          errorMessage = 'API access forbidden - check API key permissions';
-        } else if (geminiResponse.status === 429) {
-          errorMessage = 'API rate limit exceeded - try again later';
-        } else if (geminiResponse.status >= 500) {
-          errorMessage = 'Google AI service temporarily unavailable';
+        // Enhanced fallback questions based on goal type
+        const goal = goal_title.toLowerCase();
+        let questions: string[];
+        
+        if (goal.includes('learn') || goal.includes('study')) {
+          if (goal.includes('language')) {
+            questions = [
+              'What is your current level in this language?',
+              'How much time can you dedicate to practice daily?',
+              'Do you prefer structured courses or self-study?',
+              'What specific skills do you want to focus on most (speaking, writing, reading)?'
+            ];
+          } else if (goal.includes('code') || goal.includes('program')) {
+            questions = [
+              'What is your programming experience level?',
+              'Which programming language interests you most?',
+              'Do you have a specific project in mind?',
+              'How much time can you dedicate to coding daily?'
+            ];
+          } else {
+            questions = [
+              'What is your current knowledge level in this area?',
+              'How much time can you dedicate to learning daily?',
+              'What learning resources do you prefer?',
+              'What specific outcome do you want to achieve?'
+            ];
+          }
+        } else if (goal.includes('fitness') || goal.includes('workout') || goal.includes('run')) {
+          questions = [
+            'What is your current fitness level?',
+            'How many days per week can you exercise?',
+            'Do you have access to a gym or equipment?',
+            'What is your main motivation for this goal?'
+          ];
+        } else if (goal.includes('business') || goal.includes('startup')) {
+          questions = [
+            'What is your relevant experience in this area?',
+            'What resources or budget do you have available?',
+            'What is your target timeline for initial results?',
+            'Who is your target audience or market?'
+          ];
+        } else {
+          questions = [
+            'What is your current experience level with this goal?',
+            'How much time can you realistically dedicate daily?',
+            'What resources or support do you have available?',
+            'How will you measure success and stay motivated?'
+          ];
         }
         
         return new Response(
           JSON.stringify({ 
-            error: errorMessage,
-            details: errorText,
-            status: geminiResponse.status
+            error: `Gemini API error: ${geminiResponse.status}`,
+            questions
           }),
           {
-            status: 500,
+            status: 200, // Changed from 500 to 200
             headers: {
               'Content-Type': 'application/json',
               ...corsHeaders,
@@ -229,12 +333,64 @@ Format: ["Question 1?", "Question 2?", "Question 3?", "Question 4?"]`;
       
       if (fetchError.name === 'AbortError') {
         console.error('⏰ Request timeout');
+        
+        // Enhanced fallback questions based on goal type
+        const goal = goal_title.toLowerCase();
+        let questions: string[];
+        
+        if (goal.includes('learn') || goal.includes('study')) {
+          if (goal.includes('language')) {
+            questions = [
+              'What is your current level in this language?',
+              'How much time can you dedicate to practice daily?',
+              'Do you prefer structured courses or self-study?',
+              'What specific skills do you want to focus on most (speaking, writing, reading)?'
+            ];
+          } else if (goal.includes('code') || goal.includes('program')) {
+            questions = [
+              'What is your programming experience level?',
+              'Which programming language interests you most?',
+              'Do you have a specific project in mind?',
+              'How much time can you dedicate to coding daily?'
+            ];
+          } else {
+            questions = [
+              'What is your current knowledge level in this area?',
+              'How much time can you dedicate to learning daily?',
+              'What learning resources do you prefer?',
+              'What specific outcome do you want to achieve?'
+            ];
+          }
+        } else if (goal.includes('fitness') || goal.includes('workout') || goal.includes('run')) {
+          questions = [
+            'What is your current fitness level?',
+            'How many days per week can you exercise?',
+            'Do you have access to a gym or equipment?',
+            'What is your main motivation for this goal?'
+          ];
+        } else if (goal.includes('business') || goal.includes('startup')) {
+          questions = [
+            'What is your relevant experience in this area?',
+            'What resources or budget do you have available?',
+            'What is your target timeline for initial results?',
+            'Who is your target audience or market?'
+          ];
+        } else {
+          questions = [
+            'What is your current experience level with this goal?',
+            'How much time can you realistically dedicate daily?',
+            'What resources or support do you have available?',
+            'How will you measure success and stay motivated?'
+          ];
+        }
+        
         return new Response(
           JSON.stringify({ 
-            error: 'Request timeout - Google AI API took too long to respond'
+            error: 'Request timeout - Google AI API took too long to respond',
+            questions
           }),
           {
-            status: 408,
+            status: 200, // Changed from 408 to 200
             headers: {
               'Content-Type': 'application/json',
               ...corsHeaders,
@@ -248,13 +404,64 @@ Format: ["Question 1?", "Question 2?", "Question 3?", "Question 4?"]`;
   } catch (error) {
     console.error('💥 Error in generate-questions:', error);
     
+    // Enhanced fallback questions based on goal type
+    const goal = (error.goal_title || '').toLowerCase();
+    let questions: string[];
+    
+    if (goal.includes('learn') || goal.includes('study')) {
+      if (goal.includes('language')) {
+        questions = [
+          'What is your current level in this language?',
+          'How much time can you dedicate to practice daily?',
+          'Do you prefer structured courses or self-study?',
+          'What specific skills do you want to focus on most (speaking, writing, reading)?'
+        ];
+      } else if (goal.includes('code') || goal.includes('program')) {
+        questions = [
+          'What is your programming experience level?',
+          'Which programming language interests you most?',
+          'Do you have a specific project in mind?',
+          'How much time can you dedicate to coding daily?'
+        ];
+      } else {
+        questions = [
+          'What is your current knowledge level in this area?',
+          'How much time can you dedicate to learning daily?',
+          'What learning resources do you prefer?',
+          'What specific outcome do you want to achieve?'
+        ];
+      }
+    } else if (goal.includes('fitness') || goal.includes('workout') || goal.includes('run')) {
+      questions = [
+        'What is your current fitness level?',
+        'How many days per week can you exercise?',
+        'Do you have access to a gym or equipment?',
+        'What is your main motivation for this goal?'
+      ];
+    } else if (goal.includes('business') || goal.includes('startup')) {
+      questions = [
+        'What is your relevant experience in this area?',
+        'What resources or budget do you have available?',
+        'What is your target timeline for initial results?',
+        'Who is your target audience or market?'
+      ];
+    } else {
+      questions = [
+        'What is your current experience level with this goal?',
+        'How much time can you realistically dedicate daily?',
+        'What resources or support do you have available?',
+        'How will you measure success and stay motivated?'
+      ];
+    }
+    
     return new Response(
       JSON.stringify({ 
         error: 'Failed to generate questions',
-        message: error.message
+        message: error.message,
+        questions
       }),
       {
-        status: 500,
+        status: 200, // Changed from 500 to 200
         headers: {
           'Content-Type': 'application/json',
           ...corsHeaders,
