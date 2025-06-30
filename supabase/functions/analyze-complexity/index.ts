@@ -17,13 +17,28 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // Get API key from environment
-    const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
-    
-    console.log('🔑 API Key status:', apiKey ? `Available (${apiKey.substring(0, 10)}...)` : 'Missing');
-    console.log('🔑 Full API Key length:', apiKey?.length || 0);
+    // Get request body
+    let requestBody;
+    try {
+      requestBody = await req.json();
+    } catch (parseError) {
+      console.error('❌ Failed to parse request body:', parseError);
+      return new Response(
+        JSON.stringify({ 
+          complexity: 'Complex Goal',
+          debug: 'Invalid request body - defaulting to Complex Goal',
+          error: 'Failed to parse request body'
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+          },
+        }
+      );
+    }
 
-    const requestBody = await req.json();
     const { input_text } = requestBody;
     
     console.log('📝 Input received:', input_text);
@@ -44,6 +59,11 @@ Deno.serve(async (req: Request) => {
         }
       );
     }
+
+    // Get API key from environment
+    const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
+    
+    console.log('🔑 API Key status:', apiKey ? `Available (${apiKey.substring(0, 10)}...)` : 'Missing');
 
     if (!apiKey) {
       console.error('❌ Google AI API key not found in environment');
@@ -106,7 +126,6 @@ Respond with EXACTLY one of these two phrases:
 Nothing else.`;
 
     console.log('🚀 Making request to Gemini API...');
-    console.log('🔗 API URL:', `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey.substring(0, 10)}...`);
     
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
@@ -135,7 +154,6 @@ Nothing else.`;
       clearTimeout(timeoutId);
 
       console.log('📡 Gemini API response status:', geminiResponse.status);
-      console.log('📡 Gemini API response headers:', Object.fromEntries(geminiResponse.headers.entries()));
 
       if (!geminiResponse.ok) {
         const errorText = await geminiResponse.text();
@@ -164,7 +182,7 @@ Nothing else.`;
           JSON.stringify({ 
             complexity,
             debug: `API error ${geminiResponse.status} - used intelligent fallback`,
-            error: errorText
+            error: `Gemini API error: ${geminiResponse.status}`
           }),
           {
             status: 200,
@@ -178,7 +196,6 @@ Nothing else.`;
 
       const geminiData = await geminiResponse.json();
       console.log('🤖 Gemini response received');
-      console.log('🤖 Gemini response structure:', JSON.stringify(geminiData, null, 2));
       
       const aiResponse = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
       console.log('🤖 AI Response:', aiResponse);

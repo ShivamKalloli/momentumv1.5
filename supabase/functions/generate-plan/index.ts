@@ -15,7 +15,28 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const requestBody = await req.json();
+    // Get request body
+    let requestBody;
+    try {
+      requestBody = await req.json();
+    } catch (parseError) {
+      console.error('❌ Failed to parse request body:', parseError);
+      return new Response(
+        JSON.stringify({ 
+          plan: generateFallbackPlan('Achieve Goal', 30, {}),
+          debug: 'Invalid request body - using fallback plan',
+          error: 'Failed to parse request body'
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+          },
+        }
+      );
+    }
+
     const { goal_title, duration_days, answers_to_questions } = requestBody;
     
     console.log('📝 Plan request received:', { goal_title, duration_days, answersCount: Object.keys(answers_to_questions || {}).length });
@@ -23,11 +44,12 @@ Deno.serve(async (req: Request) => {
     if (!goal_title || typeof goal_title !== 'string') {
       return new Response(
         JSON.stringify({ 
-          error: 'Invalid input: goal_title is required and must be a string',
-          plan: generateFallbackPlan(goal_title || 'Achieve Goal', duration_days || 30, answers_to_questions || {})
+          plan: generateFallbackPlan(goal_title || 'Achieve Goal', duration_days || 30, answers_to_questions || {}),
+          debug: 'Invalid goal_title - using fallback plan',
+          error: 'Invalid input: goal_title is required and must be a string'
         }),
         {
-          status: 200, // Changed from 400 to 200
+          status: 200,
           headers: {
             'Content-Type': 'application/json',
             ...corsHeaders,
@@ -39,11 +61,12 @@ Deno.serve(async (req: Request) => {
     if (!duration_days || typeof duration_days !== 'number' || duration_days < 1) {
       return new Response(
         JSON.stringify({ 
-          error: 'Invalid input: duration_days must be a positive number',
-          plan: generateFallbackPlan(goal_title, 30, answers_to_questions || {})
+          plan: generateFallbackPlan(goal_title, 30, answers_to_questions || {}),
+          debug: 'Invalid duration_days - using fallback plan',
+          error: 'Invalid input: duration_days must be a positive number'
         }),
         {
-          status: 200, // Changed from 400 to 200
+          status: 200,
           headers: {
             'Content-Type': 'application/json',
             ...corsHeaders,
@@ -61,11 +84,11 @@ Deno.serve(async (req: Request) => {
       
       return new Response(
         JSON.stringify({ 
-          error: 'Google AI API key not configured. Using fallback plan.',
-          plan: generateFallbackPlan(goal_title, duration_days, answers_to_questions || {})
+          plan: generateFallbackPlan(goal_title, duration_days, answers_to_questions || {}),
+          debug: 'API key missing - using intelligent fallback plan'
         }),
         {
-          status: 200, // Changed from 500 to 200
+          status: 200,
           headers: {
             'Content-Type': 'application/json',
             ...corsHeaders,
@@ -184,11 +207,12 @@ Make the plan feel personal and achievable based on their specific situation and
         
         return new Response(
           JSON.stringify({ 
-            error: `Gemini API error: ${geminiResponse.status}`,
-            plan: generateFallbackPlan(goal_title, duration_days, answers_to_questions || {})
+            plan: generateFallbackPlan(goal_title, duration_days, answers_to_questions || {}),
+            debug: `Gemini API error ${geminiResponse.status} - using intelligent fallback`,
+            error: `Gemini API error: ${geminiResponse.status}`
           }),
           {
-            status: 200, // Changed from 500 to 200
+            status: 200,
             headers: {
               'Content-Type': 'application/json',
               ...corsHeaders,
@@ -235,7 +259,10 @@ Make the plan feel personal and achievable based on their specific situation and
       }
 
       return new Response(
-        JSON.stringify({ plan }),
+        JSON.stringify({ 
+          plan,
+          debug: 'AI plan generated successfully'
+        }),
         {
           status: 200,
           headers: {
@@ -251,11 +278,12 @@ Make the plan feel personal and achievable based on their specific situation and
         console.error('⏰ Request timeout');
         return new Response(
           JSON.stringify({ 
-            error: 'Request timeout - Google AI API took too long to respond',
-            plan: generateFallbackPlan(goal_title, duration_days, answers_to_questions || {})
+            plan: generateFallbackPlan(goal_title, duration_days, answers_to_questions || {}),
+            debug: 'Request timeout - using intelligent fallback',
+            error: 'Request timeout - Google AI API took too long to respond'
           }),
           {
-            status: 200, // Changed from 408 to 200
+            status: 200,
             headers: {
               'Content-Type': 'application/json',
               ...corsHeaders,
@@ -271,12 +299,12 @@ Make the plan feel personal and achievable based on their specific situation and
     
     return new Response(
       JSON.stringify({ 
-        error: 'Failed to generate plan',
-        message: error.message,
-        plan: generateFallbackPlan('Achieve Goal', 30, {})
+        plan: generateFallbackPlan('Achieve Goal', 30, {}),
+        debug: 'General error - using intelligent fallback',
+        error: error.message
       }),
       {
-        status: 200, // Changed from 500 to 200
+        status: 200,
         headers: {
           'Content-Type': 'application/json',
           ...corsHeaders,

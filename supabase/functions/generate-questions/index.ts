@@ -15,7 +15,33 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const requestBody = await req.json();
+    // Get request body
+    let requestBody;
+    try {
+      requestBody = await req.json();
+    } catch (parseError) {
+      console.error('❌ Failed to parse request body:', parseError);
+      return new Response(
+        JSON.stringify({ 
+          questions: [
+            'What is your current experience level with this goal?',
+            'How much time can you realistically dedicate daily?',
+            'What resources or support do you have available?',
+            'How will you measure success and stay motivated?'
+          ],
+          debug: 'Invalid request body - using fallback questions',
+          error: 'Failed to parse request body'
+        }),
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/json',
+            ...corsHeaders,
+          },
+        }
+      );
+    }
+
     const { goal_title } = requestBody;
     
     console.log('📝 Goal received:', goal_title);
@@ -23,16 +49,17 @@ Deno.serve(async (req: Request) => {
     if (!goal_title || typeof goal_title !== 'string') {
       return new Response(
         JSON.stringify({ 
-          error: 'Invalid input: goal_title is required and must be a string',
           questions: [
             'What is your current experience level with this goal?',
             'How much time can you realistically dedicate daily?',
             'What resources or support do you have available?',
             'How will you measure success and stay motivated?'
-          ]
+          ],
+          debug: 'Invalid goal_title - using fallback questions',
+          error: 'Invalid input: goal_title is required and must be a string'
         }),
         {
-          status: 200, // Changed from 400 to 200
+          status: 200,
           headers: {
             'Content-Type': 'application/json',
             ...corsHeaders,
@@ -100,11 +127,11 @@ Deno.serve(async (req: Request) => {
       
       return new Response(
         JSON.stringify({ 
-          error: 'Google AI API key not configured. Using fallback questions.',
-          questions
+          questions,
+          debug: 'API key missing - used intelligent fallback questions'
         }),
         {
-          status: 200, // Changed from 500 to 200
+          status: 200,
           headers: {
             'Content-Type': 'application/json',
             ...corsHeaders,
@@ -233,11 +260,12 @@ Format: ["Question 1?", "Question 2?", "Question 3?", "Question 4?"]`;
         
         return new Response(
           JSON.stringify({ 
-            error: `Gemini API error: ${geminiResponse.status}`,
-            questions
+            questions,
+            debug: `Gemini API error ${geminiResponse.status} - used intelligent fallback`,
+            error: `Gemini API error: ${geminiResponse.status}`
           }),
           {
-            status: 200, // Changed from 500 to 200
+            status: 200,
             headers: {
               'Content-Type': 'application/json',
               ...corsHeaders,
@@ -319,7 +347,10 @@ Format: ["Question 1?", "Question 2?", "Question 3?", "Question 4?"]`;
       }
 
       return new Response(
-        JSON.stringify({ questions }),
+        JSON.stringify({ 
+          questions,
+          debug: 'AI questions generated successfully'
+        }),
         {
           status: 200,
           headers: {
@@ -386,11 +417,12 @@ Format: ["Question 1?", "Question 2?", "Question 3?", "Question 4?"]`;
         
         return new Response(
           JSON.stringify({ 
-            error: 'Request timeout - Google AI API took too long to respond',
-            questions
+            questions,
+            debug: 'Request timeout - used intelligent fallback',
+            error: 'Request timeout - Google AI API took too long to respond'
           }),
           {
-            status: 200, // Changed from 408 to 200
+            status: 200,
             headers: {
               'Content-Type': 'application/json',
               ...corsHeaders,
@@ -456,12 +488,12 @@ Format: ["Question 1?", "Question 2?", "Question 3?", "Question 4?"]`;
     
     return new Response(
       JSON.stringify({ 
-        error: 'Failed to generate questions',
-        message: error.message,
-        questions
+        questions,
+        debug: 'General error - used intelligent fallback',
+        error: error.message
       }),
       {
-        status: 200, // Changed from 500 to 200
+        status: 200,
         headers: {
           'Content-Type': 'application/json',
           ...corsHeaders,
