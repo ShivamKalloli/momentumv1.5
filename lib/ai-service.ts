@@ -42,16 +42,36 @@ class AIService {
         hasData: !!data, 
         hasError: !!error,
         errorMessage: error?.message,
-        data: data ? JSON.stringify(data).substring(0, 200) + '...' : null
+        data: data ? JSON.stringify(data).substring(0, 500) + '...' : null
       });
       
       if (error) {
         console.error(`❌ Supabase function error for ${functionName}:`, error);
+        
+        // Check if it's a deployment issue
+        if (error.message?.includes('Function not found') || error.message?.includes('404')) {
+          throw new Error(`Function ${functionName} not found. Please ensure it's deployed to Supabase.`);
+        }
+        
+        // Check if it's an API key issue
+        if (error.message?.includes('API key') || error.message?.includes('unauthorized')) {
+          throw new Error(`Google AI API key issue. Please check your GOOGLE_AI_API_KEY secret in Supabase.`);
+        }
+        
         throw new Error(`AI service error: ${error.message}`);
       }
       
       if (!data) {
         throw new Error('No response received from AI service');
+      }
+      
+      // Check if the response contains an error from the function itself
+      if (data.error) {
+        console.warn(`⚠️ Function returned error: ${data.error}`);
+        // Don't throw here if we have fallback data
+        if (!data.complexity && !data.questions && !data.plan) {
+          throw new Error(data.error);
+        }
       }
       
       // Check if the response contains debug info (indicates AI worked or used intelligent fallback)
@@ -62,8 +82,10 @@ class AIService {
       // Check if AI actually worked vs fallback
       if (data.debug?.includes('AI') && !data.debug?.includes('fallback')) {
         console.log(`✅ ${functionName}: AI successfully processed request`);
-      } else {
+      } else if (data.debug?.includes('fallback')) {
         console.log(`⚠️ ${functionName}: Using fallback (AI may not be working)`);
+      } else {
+        console.log(`✅ ${functionName}: Function executed successfully`);
       }
       
       return data;
