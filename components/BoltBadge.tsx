@@ -48,7 +48,7 @@ export function BoltBadge({
       activeOpacity={0.8}
     >
       <Image
-        source={{ uri: '/assets/images/black_circle_360x360.png' }}
+        source={require('../assets/images/black_circle_360x360.png')}
         style={[styles.badge, { width: size, height: size }]}
         resizeMode="contain"
       />
