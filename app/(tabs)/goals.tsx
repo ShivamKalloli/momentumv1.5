@@ -15,6 +15,7 @@ import { Target, Calendar, Clock, TrendingUp, Plus, MoveVertical as MoreVertical
 import { useAuth } from '@/contexts/AuthContext';
 import { goalService } from '@/lib/goal-service';
 import { Goal } from '@/types/database.types';
+import { BoltBadge } from '@/components/BoltBadge';
 
 export default function GoalsScreen() {
   const router = useRouter();
@@ -177,6 +178,7 @@ export default function GoalsScreen() {
   if (authLoading) {
     return (
       <SafeAreaView style={styles.container}>
+        <BoltBadge position="top-right" size={35} />
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
@@ -187,6 +189,7 @@ export default function GoalsScreen() {
   if (!user) {
     return (
       <SafeAreaView style={styles.container}>
+        <BoltBadge position="top-right" size={35} />
         <View style={styles.authPrompt}>
           <Target size={48} color="#9ca3af" />
           <Text style={styles.authTitle}>Your Goals Await</Text>
@@ -204,6 +207,7 @@ export default function GoalsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <BoltBadge position="top-right" size={35} />
       <ScrollView
         style={styles.scrollView}
         refreshControl={
@@ -447,6 +451,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     paddingBottom: 16,
+    paddingTop: 60, // Add space for the badge
   },
   title: {
     fontSize: 28,

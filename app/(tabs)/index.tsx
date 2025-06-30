@@ -14,6 +14,7 @@ import { Plus, Clock, CircleCheck as CheckCircle, Circle, CircleAlert as AlertCi
 import { useAuth } from '@/contexts/AuthContext';
 import { goalService } from '@/lib/goal-service';
 import { Task } from '@/types/database.types';
+import { BoltBadge } from '@/components/BoltBadge';
 
 export default function TodayScreen() {
   const router = useRouter();
@@ -81,6 +82,7 @@ export default function TodayScreen() {
   if (authLoading) {
     return (
       <SafeAreaView style={styles.container}>
+        <BoltBadge position="top-right" size={35} />
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
@@ -91,6 +93,7 @@ export default function TodayScreen() {
   if (!user) {
     return (
       <SafeAreaView style={styles.container}>
+        <BoltBadge position="top-right" size={35} />
         <View style={styles.authPrompt}>
           <Text style={styles.authTitle}>Welcome to Momentum</Text>
           <Text style={styles.authSubtitle}>Sign in to start tracking your goals</Text>
@@ -107,6 +110,7 @@ export default function TodayScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <BoltBadge position="top-right" size={35} />
       <ScrollView
         style={styles.scrollView}
         refreshControl={
@@ -297,6 +301,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     padding: 20,
     paddingBottom: 16,
+    paddingTop: 60, // Add space for the badge
   },
   greeting: {
     fontSize: 28,

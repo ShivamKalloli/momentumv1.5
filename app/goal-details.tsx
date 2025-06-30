@@ -13,6 +13,7 @@ import { ArrowLeft, Calendar, Clock, Target, CircleCheck as CheckCircle, Circle,
 import { useAuth } from '@/contexts/AuthContext';
 import { goalService } from '@/lib/goal-service';
 import { Goal, Task } from '@/types/database.types';
+import { BoltBadge } from '@/components/BoltBadge';
 
 export default function GoalDetailsScreen() {
   const router = useRouter();
@@ -84,6 +85,7 @@ export default function GoalDetailsScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
+        <BoltBadge position="top-right" size={35} />
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading goal details...</Text>
         </View>
@@ -94,6 +96,7 @@ export default function GoalDetailsScreen() {
   if (!goal) {
     return (
       <SafeAreaView style={styles.container}>
+        <BoltBadge position="top-right" size={35} />
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>Goal not found</Text>
           <TouchableOpacity
@@ -113,6 +116,7 @@ export default function GoalDetailsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <BoltBadge position="top-right" size={35} />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity 
@@ -277,7 +281,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 16,
-    
+    paddingTop: 60, // Add space for the badge
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
     backgroundColor: '#ffffff',

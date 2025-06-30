@@ -15,6 +15,7 @@ import { useRouter } from 'expo-router';
 import { ArrowLeft, Target, MessageSquare, Sparkles } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
 import { goalService } from '@/lib/goal-service';
+import { BoltBadge } from '@/components/BoltBadge';
 
 type OnboardingStep = 'input' | 'duration' | 'questions' | 'generating';
 
@@ -277,6 +278,7 @@ export default function OnboardingScreen() {
   if (!user) {
     return (
       <SafeAreaView style={styles.container}>
+        <BoltBadge position="top-right" size={35} />
         <View style={styles.authPrompt}>
           <Text style={styles.authTitle}>Sign in required</Text>
           <Text style={styles.authSubtitle}>
@@ -295,6 +297,7 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <BoltBadge position="top-right" size={35} />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
@@ -333,6 +336,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     paddingVertical: 16,
+    paddingTop: 60, // Add space for the badge
     borderBottomWidth: 1,
     borderBottomColor: '#f1f5f9',
     backgroundColor: '#ffffff',

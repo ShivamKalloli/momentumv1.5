@@ -14,6 +14,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Target, Mail, Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
+import { BoltBadge } from '@/components/BoltBadge';
 
 export default function AuthScreen() {
   const router = useRouter();
@@ -94,6 +95,7 @@ export default function AuthScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <BoltBadge position="top-right" size={35} />
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
@@ -206,6 +208,7 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 20,
     justifyContent: 'center',
+    paddingTop: 60, // Add space for the badge
   },
   header: {
     alignItems: 'center',

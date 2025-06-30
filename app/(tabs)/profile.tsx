@@ -10,6 +10,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { User, LogOut, Settings, CircleHelp as HelpCircle, Mail } from 'lucide-react-native';
 import { useAuth } from '@/contexts/AuthContext';
+import { BoltBadge } from '@/components/BoltBadge';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -39,6 +40,7 @@ export default function ProfileScreen() {
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
+        <BoltBadge position="top-right" size={35} />
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Loading...</Text>
         </View>
@@ -49,6 +51,7 @@ export default function ProfileScreen() {
   if (!user) {
     return (
       <SafeAreaView style={styles.container}>
+        <BoltBadge position="top-right" size={35} />
         <View style={styles.authPrompt}>
           <User size={48} color="#9ca3af" />
           <Text style={styles.authTitle}>Welcome to Momentum</Text>
@@ -66,6 +69,7 @@ export default function ProfileScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      <BoltBadge position="top-right" size={35} />
       <View style={styles.content}>
         {/* Header */}
         <View style={styles.header}>
@@ -137,6 +141,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 20,
+    paddingTop: 60, // Add space for the badge
   },
   loadingContainer: {
     flex: 1,
