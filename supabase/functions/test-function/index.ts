@@ -1,53 +1,42 @@
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 
-Deno.serve(async (req: Request) => {
-  console.log('🧪 Test Function Called - Method:', req.method);
-  
-  if (req.method === "OPTIONS") {
-    return new Response(null, {
-      status: 200,
-      headers: corsHeaders,
-    });
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+serve(async (req) => {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
   }
 
   try {
-    const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
-    
     return new Response(
       JSON.stringify({ 
         success: true,
-        message: 'Test function is working!',
-        hasApiKey: !!apiKey,
-        timestamp: new Date().toISOString()
+        message: 'Test function is working correctly',
+        timestamp: new Date().toISOString(),
+        debug: 'Test function executed successfully'
       }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders,
-        },
+      { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
-    );
+    )
+
   } catch (error) {
-    console.error('Test function error:', error);
+    console.error('Error in test-function:', error)
     
     return new Response(
       JSON.stringify({ 
         success: false,
         error: error.message,
-        timestamp: new Date().toISOString()
+        debug: 'Error occurred in test function'
       }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders,
-        },
+      { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
-    );
+    )
   }
-});
+})

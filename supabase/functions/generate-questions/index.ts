@@ -1,229 +1,141 @@
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+
 const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, Authorization",
-};
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
 
-Deno.serve(async (req: Request) => {
-  // Always wrap in try-catch to guarantee 200 response
+serve(async (req) => {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
   try {
-    console.log('❓ Generate Questions Function Called');
-    
-    if (req.method === "OPTIONS") {
-      return new Response(null, {
-        status: 200,
-        headers: corsHeaders,
-      });
-    }
+    const { goal_title } = await req.json()
 
-    let goal_title = '';
-
-    // Safely parse request body
-    try {
-      const bodyText = await req.text();
-      console.log('📝 Raw request body length:', bodyText?.length || 0);
-      
-      if (bodyText) {
-        const requestBody = JSON.parse(bodyText);
-        goal_title = requestBody?.goal_title || '';
-      }
-    } catch (parseError) {
-      console.error('❌ Request parsing error:', parseError.message);
-      // Continue with empty goal_title
-    }
-
-    console.log('📝 Processing goal:', goal_title);
-
-    // Validate input
-    if (!goal_title || typeof goal_title !== 'string' || goal_title.trim().length === 0) {
-      console.log('⚠️ Invalid goal, using fallback questions');
-      const questions = getGenericFallbackQuestions();
-      
+    if (!goal_title || typeof goal_title !== 'string') {
       return new Response(
         JSON.stringify({ 
-          questions,
-          debug: 'Invalid or missing goal_title - used generic fallback'
+          error: 'Missing or invalid goal_title parameter',
+          questions: [
+            'What is your current experience level with this goal?',
+            'How much time can you realistically dedicate daily?',
+            'What resources or support do you have available?',
+            'How will you measure success and stay motivated?'
+          ]
         }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
+        { 
+          status: 400, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
-      );
+      )
     }
 
-    // Check API key
-    const apiKey = Deno.env.get('GOOGLE_AI_API_KEY');
-    console.log('🔑 API Key available:', !!apiKey);
+    // Generate questions based on goal type
+    const goal = goal_title.toLowerCase()
+    let questions: string[] = []
 
-    if (!apiKey) {
-      console.log('⚠️ No API key, using intelligent fallback');
-      const questions = getIntelligentFallbackQuestions(goal_title);
-      
-      return new Response(
-        JSON.stringify({ 
-          questions,
-          debug: 'API key missing - used intelligent fallback questions'
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-        }
-      );
-    }
-
-    // Try AI question generation
-    try {
-      console.log('🚀 Attempting AI question generation...');
-      
-      const prompt = `Generate exactly 4 specific questions for this goal: "${goal_title}"
-
-Questions should determine:
-1. Current skill/experience level
-2. Available time commitment  
-3. Resources/constraints/preferences
-4. Specific focus areas/outcomes
-
-Return ONLY a JSON array: ["Question 1?", "Question 2?", "Question 3?", "Question 4?"]`;
-
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 20000);
-      
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: { temperature: 0.7, maxOutputTokens: 500 }
-          }),
-          signal: controller.signal
-        }
-      );
-
-      clearTimeout(timeoutId);
-      console.log('📡 AI response status:', response.status);
-
-      if (response.ok) {
-        const data = await response.json();
-        const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-        console.log('🤖 AI response length:', aiResponse?.length || 0);
-        
-        try {
-          const cleanResponse = aiResponse?.replace(/```json\n?|\n?```/g, '').trim();
-          const questions = JSON.parse(cleanResponse || '[]');
-          
-          if (Array.isArray(questions) && questions.length > 0 && questions.every(q => typeof q === 'string')) {
-            return new Response(
-              JSON.stringify({ 
-                questions,
-                debug: 'AI questions generated successfully'
-              }),
-              {
-                status: 200,
-                headers: {
-                  'Content-Type': 'application/json',
-                  ...corsHeaders,
-                },
-              }
-            );
-          } else {
-            throw new Error('Invalid questions format');
-          }
-        } catch (parseError) {
-          console.error('❌ Failed to parse AI response:', parseError.message);
-          throw new Error('AI response parsing failed');
-        }
+    if (goal.includes('learn') || goal.includes('study')) {
+      if (goal.includes('language')) {
+        questions = [
+          'What is your current level in this language?',
+          'How much time can you dedicate to practice daily?',
+          'Do you prefer structured courses or self-study?',
+          'What specific skills do you want to focus on most (speaking, writing, reading)?',
+          'Do you have any previous experience with similar languages?'
+        ]
+      } else if (goal.includes('code') || goal.includes('program') || goal.includes('software')) {
+        questions = [
+          'What is your programming experience level?',
+          'Which programming language or technology interests you most?',
+          'Do you have a specific project or application in mind?',
+          'How much time can you dedicate to coding daily?',
+          'Do you prefer hands-on projects or structured tutorials?'
+        ]
       } else {
-        throw new Error(`AI API error: ${response.status}`);
+        questions = [
+          'What is your current knowledge level in this area?',
+          'How much time can you dedicate to learning daily?',
+          'What learning resources do you prefer (books, videos, courses)?',
+          'What specific outcome do you want to achieve?',
+          'Do you learn better alone or with others?'
+        ]
       }
-
-    } catch (aiError) {
-      console.error('💥 AI error:', aiError.message);
-      const questions = getIntelligentFallbackQuestions(goal_title);
-      
-      return new Response(
-        JSON.stringify({ 
-          questions,
-          debug: `AI failed (${aiError.message}) - used intelligent fallback`
-        }),
-        {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            ...corsHeaders,
-          },
-        }
-      );
+    } else if (goal.includes('fitness') || goal.includes('workout') || goal.includes('run') || goal.includes('exercise')) {
+      questions = [
+        'What is your current fitness level?',
+        'How many days per week can you realistically exercise?',
+        'Do you have access to a gym or prefer home workouts?',
+        'What is your main motivation for this fitness goal?',
+        'Do you have any physical limitations or injuries to consider?'
+      ]
+    } else if (goal.includes('business') || goal.includes('startup') || goal.includes('entrepreneur')) {
+      questions = [
+        'What is your relevant experience in business or this industry?',
+        'What resources or budget do you have available?',
+        'What is your target timeline for initial results?',
+        'Who is your target audience or market?',
+        'What is your biggest concern or challenge with this goal?'
+      ]
+    } else if (goal.includes('habit') || goal.includes('routine')) {
+      questions = [
+        'What time of day works best for building this habit?',
+        'What has prevented you from doing this consistently before?',
+        'How will you track your progress?',
+        'What will motivate you to stick with this habit?',
+        'How will you handle setbacks or missed days?'
+      ]
+    } else if (goal.includes('career') || goal.includes('job') || goal.includes('promotion')) {
+      questions = [
+        'What is your current role and experience level?',
+        'What specific skills do you need to develop?',
+        'What is your target timeline for this career goal?',
+        'Who can mentor or support you in this journey?',
+        'What are the biggest obstacles you anticipate?'
+      ]
+    } else {
+      // Generic questions for any goal
+      questions = [
+        'What is your current experience level with this goal?',
+        'How much time can you realistically dedicate daily or weekly?',
+        'What resources, tools, or support do you have available?',
+        'How will you measure success and track progress?',
+        'What is your main motivation for achieving this goal?'
+      ]
     }
 
-  } catch (error) {
-    console.error('💥 Critical error:', error.message);
-    
-    const questions = getGenericFallbackQuestions();
     return new Response(
       JSON.stringify({ 
         questions,
-        debug: `Critical error: ${error.message}`
+        debug: `Generated ${questions.length} questions for goal: "${goal_title}"`
       }),
-      {
-        status: 200,
-        headers: {
-          'Content-Type': 'application/json',
-          ...corsHeaders,
-        },
+      { 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
-    );
-  }
-});
+    )
 
-function getGenericFallbackQuestions(): string[] {
-  return [
-    'What is your current experience level with this goal?',
-    'How much time can you realistically dedicate daily?',
-    'What resources or support do you have available?',
-    'How will you measure success and stay motivated?'
-  ];
-}
-
-function getIntelligentFallbackQuestions(goalTitle: string): string[] {
-  const goal = goalTitle.toLowerCase();
-  
-  if (goal.includes('learn') && (goal.includes('code') || goal.includes('program') || goal.includes('python') || goal.includes('javascript'))) {
-    return [
-      'What is your programming experience level?',
-      'Which programming language interests you most?',
-      'Do you have a specific project in mind?',
-      'How much time can you dedicate to coding daily?'
-    ];
-  } else if (goal.includes('learn') && goal.includes('language')) {
-    return [
-      'What is your current level in this language?',
-      'How much time can you dedicate to practice daily?',
-      'Do you prefer structured courses or self-study?',
-      'What specific skills do you want to focus on most?'
-    ];
-  } else if (goal.includes('fitness') || goal.includes('workout') || goal.includes('exercise')) {
-    return [
-      'What is your current fitness level?',
-      'How many days per week can you exercise?',
-      'Do you have access to a gym or equipment?',
-      'What is your main motivation for this goal?'
-    ];
-  } else if (goal.includes('business') || goal.includes('startup')) {
-    return [
-      'What is your relevant experience in this area?',
-      'What resources or budget do you have available?',
-      'What is your target timeline for initial results?',
-      'Who is your target audience or market?'
-    ];
-  } else {
-    return getGenericFallbackQuestions();
+  } catch (error) {
+    console.error('Error in generate-questions:', error)
+    
+    // Fallback questions
+    const fallbackQuestions = [
+      'What is your current experience level with this goal?',
+      'How much time can you realistically dedicate daily?',
+      'What resources or support do you have available?',
+      'How will you measure success and stay motivated?'
+    ]
+    
+    return new Response(
+      JSON.stringify({ 
+        error: error.message,
+        questions: fallbackQuestions,
+        debug: 'Error occurred, using fallback questions'
+      }),
+      { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
+    )
   }
-}
+})

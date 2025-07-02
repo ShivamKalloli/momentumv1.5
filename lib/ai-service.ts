@@ -27,8 +27,13 @@ class AIService {
       
       // Check if we have valid Supabase configuration
       if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
-        throw new Error('Supabase configuration is missing. Please check your .env file.');
+        console.error('❌ Missing Supabase environment variables');
+        throw new Error('MISSING_ENV_VARS');
       }
+      
+      // Log the URL being called for debugging
+      const functionUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/${functionName}`;
+      console.log(`🔗 Calling URL: ${functionUrl}`);
       
       // Add timeout and better error handling
       const controller = new AbortController();
@@ -56,19 +61,19 @@ class AIService {
           
           // Check if it's a deployment issue
           if (error.message?.includes('Function not found') || error.message?.includes('404')) {
-            console.warn(`⚠️ Function ${functionName} not found. Using fallback logic.`);
+            console.warn(`⚠️ Function ${functionName} not found. Check if it's deployed correctly.`);
             throw new Error(`FUNCTION_NOT_DEPLOYED`);
           }
           
           // Check if it's an API key issue
-          if (error.message?.includes('API key') || error.message?.includes('unauthorized')) {
-            console.warn(`⚠️ API key issue for ${functionName}. Using fallback logic.`);
+          if (error.message?.includes('API key') || error.message?.includes('unauthorized') || error.message?.includes('Invalid API key')) {
+            console.warn(`⚠️ API key issue for ${functionName}. Check your Supabase credentials.`);
             throw new Error(`API_KEY_ISSUE`);
           }
           
           // Check for network/connection issues
-          if (error.message?.includes('Failed to fetch') || error.message?.includes('network')) {
-            console.warn(`⚠️ Network issue for ${functionName}. Using fallback logic.`);
+          if (error.message?.includes('Failed to fetch') || error.message?.includes('network') || error.message?.includes('Failed to send a request')) {
+            console.warn(`⚠️ Network issue for ${functionName}. Check your internet connection and Supabase URL.`);
             throw new Error(`NETWORK_ERROR`);
           }
           
@@ -76,7 +81,7 @@ class AIService {
         }
         
         if (!data) {
-          console.warn(`⚠️ No data received from ${functionName}. Using fallback logic.`);
+          console.warn(`⚠️ No data received from ${functionName}. Function may have failed silently.`);
           throw new Error('NO_DATA_RECEIVED');
         }
         
@@ -89,18 +94,18 @@ class AIService {
           }
         }
         
-        // Check if the response contains debug info (indicates AI worked or used intelligent fallback)
+        // Check if the response contains debug info (indicates function worked)
         if (data.debug) {
           console.log(`🔍 Debug info for ${functionName}:`, data.debug);
         }
         
-        // Check if AI actually worked vs fallback
-        if (data.debug?.includes('AI') && !data.debug?.includes('fallback')) {
-          console.log(`✅ ${functionName}: AI successfully processed request`);
-        } else if (data.debug?.includes('fallback')) {
-          console.log(`⚠️ ${functionName}: Using fallback (AI may not be working)`);
-        } else {
+        // Check if function actually worked vs fallback
+        if (data.debug?.includes('Generated') || data.debug?.includes('Analyzed')) {
           console.log(`✅ ${functionName}: Function executed successfully`);
+        } else if (data.debug?.includes('fallback')) {
+          console.log(`⚠️ ${functionName}: Using fallback (function may have issues)`);
+        } else {
+          console.log(`✅ ${functionName}: Function completed`);
         }
         
         return data;
@@ -109,13 +114,13 @@ class AIService {
         
         // Handle specific fetch errors
         if (fetchError.name === 'AbortError') {
-          console.warn(`⚠️ ${functionName} request timed out. Using fallback logic.`);
+          console.warn(`⚠️ ${functionName} request timed out. Function may be slow or unresponsive.`);
           throw new Error('REQUEST_TIMEOUT');
         }
         
         // Handle network errors
         if (fetchError.message?.includes('Failed to fetch') || fetchError.message?.includes('fetch')) {
-          console.warn(`⚠️ ${functionName} network error. Using fallback logic.`);
+          console.warn(`⚠️ ${functionName} network error. Check your connection and Supabase configuration.`);
           throw new Error('NETWORK_ERROR');
         }
         
@@ -131,7 +136,8 @@ class AIService {
         'API_KEY_ISSUE', 
         'NETWORK_ERROR',
         'REQUEST_TIMEOUT',
-        'NO_DATA_RECEIVED'
+        'NO_DATA_RECEIVED',
+        'MISSING_ENV_VARS'
       ];
       
       if (fallbackErrors.some(errorType => error.message?.includes(errorType))) {
@@ -151,14 +157,25 @@ class AIService {
       // Check environment variables first
       if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
         console.error('❌ Missing Supabase environment variables');
+        console.log('📝 Please check your .env file contains:');
+        console.log('   EXPO_PUBLIC_SUPABASE_URL=your_supabase_project_url');
+        console.log('   EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key');
         return false;
       }
+      
+      console.log('✅ Environment variables found');
+      console.log(`🔗 Supabase URL: ${process.env.EXPO_PUBLIC_SUPABASE_URL}`);
+      console.log(`🔑 Has Anon Key: ${!!process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`);
       
       const response = await this.callAIFunction('test-function', {});
       console.log('✅ Test function response:', response);
       return response.success === true;
     } catch (error) {
       console.error('❌ Test function failed:', error);
+      console.log('💡 Troubleshooting steps:');
+      console.log('   1. Verify your .env file has correct Supabase credentials');
+      console.log('   2. Check that Edge Functions are deployed in Supabase');
+      console.log('   3. Restart your development server after updating .env');
       return false;
     }
   }
