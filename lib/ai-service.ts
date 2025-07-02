@@ -25,79 +25,121 @@ class AIService {
       console.log(`🚀 Calling AI function: ${functionName}`);
       console.log('📤 Payload:', JSON.stringify(payload, null, 2));
       
+      // Check if we have valid Supabase configuration
+      if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
+        throw new Error('Supabase configuration is missing. Please check your .env file.');
+      }
+      
       // Add timeout and better error handling
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
       
-      const { data, error } = await supabase.functions.invoke(functionName, {
-        body: payload,
-        headers: {
-          'Content-Type': 'application/json',
-        }
-      });
-      
-      clearTimeout(timeoutId);
-      
-      console.log(`📥 AI function ${functionName} response:`, { 
-        hasData: !!data, 
-        hasError: !!error,
-        errorMessage: error?.message,
-        data: data ? JSON.stringify(data).substring(0, 500) + '...' : null
-      });
-      
-      if (error) {
-        console.error(`❌ Supabase function error for ${functionName}:`, error);
+      try {
+        const { data, error } = await supabase.functions.invoke(functionName, {
+          body: payload,
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
         
-        // Check if it's a deployment issue
-        if (error.message?.includes('Function not found') || error.message?.includes('404')) {
-          throw new Error(`Function ${functionName} not found. Please ensure it's deployed to Supabase.`);
+        clearTimeout(timeoutId);
+        
+        console.log(`📥 AI function ${functionName} response:`, { 
+          hasData: !!data, 
+          hasError: !!error,
+          errorMessage: error?.message,
+          data: data ? JSON.stringify(data).substring(0, 500) + '...' : null
+        });
+        
+        if (error) {
+          console.error(`❌ Supabase function error for ${functionName}:`, error);
+          
+          // Check if it's a deployment issue
+          if (error.message?.includes('Function not found') || error.message?.includes('404')) {
+            console.warn(`⚠️ Function ${functionName} not found. Using fallback logic.`);
+            throw new Error(`FUNCTION_NOT_DEPLOYED`);
+          }
+          
+          // Check if it's an API key issue
+          if (error.message?.includes('API key') || error.message?.includes('unauthorized')) {
+            console.warn(`⚠️ API key issue for ${functionName}. Using fallback logic.`);
+            throw new Error(`API_KEY_ISSUE`);
+          }
+          
+          // Check for network/connection issues
+          if (error.message?.includes('Failed to fetch') || error.message?.includes('network')) {
+            console.warn(`⚠️ Network issue for ${functionName}. Using fallback logic.`);
+            throw new Error(`NETWORK_ERROR`);
+          }
+          
+          throw new Error(`AI_SERVICE_ERROR: ${error.message}`);
         }
         
-        // Check if it's an API key issue
-        if (error.message?.includes('API key') || error.message?.includes('unauthorized')) {
-          throw new Error(`Google AI API key issue. Please check your GOOGLE_AI_API_KEY secret in Supabase.`);
+        if (!data) {
+          console.warn(`⚠️ No data received from ${functionName}. Using fallback logic.`);
+          throw new Error('NO_DATA_RECEIVED');
         }
         
-        throw new Error(`AI service error: ${error.message}`);
-      }
-      
-      if (!data) {
-        throw new Error('No response received from AI service');
-      }
-      
-      // Check if the response contains an error from the function itself
-      if (data.error) {
-        console.warn(`⚠️ Function returned error: ${data.error}`);
-        // Don't throw here if we have fallback data
-        if (!data.complexity && !data.questions && !data.plan) {
-          throw new Error(data.error);
+        // Check if the response contains an error from the function itself
+        if (data.error) {
+          console.warn(`⚠️ Function returned error: ${data.error}`);
+          // Don't throw here if we have fallback data
+          if (!data.complexity && !data.questions && !data.plan) {
+            throw new Error(`FUNCTION_ERROR: ${data.error}`);
+          }
         }
+        
+        // Check if the response contains debug info (indicates AI worked or used intelligent fallback)
+        if (data.debug) {
+          console.log(`🔍 Debug info for ${functionName}:`, data.debug);
+        }
+        
+        // Check if AI actually worked vs fallback
+        if (data.debug?.includes('AI') && !data.debug?.includes('fallback')) {
+          console.log(`✅ ${functionName}: AI successfully processed request`);
+        } else if (data.debug?.includes('fallback')) {
+          console.log(`⚠️ ${functionName}: Using fallback (AI may not be working)`);
+        } else {
+          console.log(`✅ ${functionName}: Function executed successfully`);
+        }
+        
+        return data;
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        
+        // Handle specific fetch errors
+        if (fetchError.name === 'AbortError') {
+          console.warn(`⚠️ ${functionName} request timed out. Using fallback logic.`);
+          throw new Error('REQUEST_TIMEOUT');
+        }
+        
+        // Handle network errors
+        if (fetchError.message?.includes('Failed to fetch') || fetchError.message?.includes('fetch')) {
+          console.warn(`⚠️ ${functionName} network error. Using fallback logic.`);
+          throw new Error('NETWORK_ERROR');
+        }
+        
+        // Re-throw other errors
+        throw fetchError;
       }
-      
-      // Check if the response contains debug info (indicates AI worked or used intelligent fallback)
-      if (data.debug) {
-        console.log(`🔍 Debug info for ${functionName}:`, data.debug);
-      }
-      
-      // Check if AI actually worked vs fallback
-      if (data.debug?.includes('AI') && !data.debug?.includes('fallback')) {
-        console.log(`✅ ${functionName}: AI successfully processed request`);
-      } else if (data.debug?.includes('fallback')) {
-        console.log(`⚠️ ${functionName}: Using fallback (AI may not be working)`);
-      } else {
-        console.log(`✅ ${functionName}: Function executed successfully`);
-      }
-      
-      return data;
     } catch (error: any) {
       console.error(`💥 Failed to call AI function ${functionName}:`, error);
       
-      // Handle AbortError (timeout)
-      if (error.name === 'AbortError') {
-        throw new Error('Request timed out. The AI service is taking too long to respond. Please try again.');
+      // For specific error types, we'll use fallback logic
+      const fallbackErrors = [
+        'FUNCTION_NOT_DEPLOYED',
+        'API_KEY_ISSUE', 
+        'NETWORK_ERROR',
+        'REQUEST_TIMEOUT',
+        'NO_DATA_RECEIVED'
+      ];
+      
+      if (fallbackErrors.some(errorType => error.message?.includes(errorType))) {
+        console.log(`🔄 Using fallback logic for ${functionName} due to: ${error.message}`);
+        throw error; // Let the calling function handle fallback
       }
       
-      // Re-throw the error for the calling function to handle
+      // Re-throw other errors
       throw error;
     }
   }
@@ -105,6 +147,13 @@ class AIService {
   async testConnection(): Promise<boolean> {
     try {
       console.log('🧪 Testing AI service connection...');
+      
+      // Check environment variables first
+      if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
+        console.error('❌ Missing Supabase environment variables');
+        return false;
+      }
+      
       const response = await this.callAIFunction('test-function', {});
       console.log('✅ Test function response:', response);
       return response.success === true;
@@ -129,7 +178,7 @@ class AIService {
       
       return response.complexity;
     } catch (error) {
-      console.error('❌ Error analyzing complexity:', error);
+      console.warn('⚠️ AI complexity analysis failed, using fallback logic:', error);
       
       // Enhanced fallback logic with better classification
       const text = inputText.toLowerCase().trim();
@@ -189,7 +238,7 @@ class AIService {
       
       return response.questions;
     } catch (error) {
-      console.error('❌ Error generating questions:', error);
+      console.warn('⚠️ AI question generation failed, using fallback logic:', error);
       
       // Enhanced fallback questions based on goal type
       const goal = goalTitle.toLowerCase();
@@ -263,7 +312,7 @@ class AIService {
       
       return response.plan;
     } catch (error) {
-      console.error('❌ Error generating plan:', error);
+      console.warn('⚠️ AI plan generation failed, using fallback logic:', error);
       
       // Enhanced fallback plan
       return this.generateFallbackPlan(goalTitle, durationDays, answers);
