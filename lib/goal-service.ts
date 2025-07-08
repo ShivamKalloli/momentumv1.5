@@ -8,36 +8,51 @@ export class GoalService {
     questions?: string[];
     goal?: Goal;
   }> {
+    // Validate input parameters
+    if (!inputText || typeof inputText !== 'string' || inputText.trim().length === 0) {
+      throw new Error('Goal description is required and cannot be empty');
+    }
+    
+    if (!durationDays || typeof durationDays !== 'number' || durationDays < 1) {
+      throw new Error('Duration must be a positive number');
+    }
+
     console.log('🎯 Creating goal:', inputText, 'Duration:', durationDays);
     
-    const complexity = await aiService.analyzeComplexity(inputText);
+    const complexity = await aiService.analyzeComplexity(inputText.trim());
     console.log('📊 Goal complexity:', complexity);
     
     if (complexity === 'Simple Task') {
       // Create simple task directly
-      const goal = await this.createSimpleTask(inputText);
+      const goal = await this.createSimpleTask(inputText.trim());
       return { isSimpleTask: true, goal };
     } else {
       // Generate questions for complex goal
-      const questions = await aiService.generateQuestions(inputText);
+      const questions = await aiService.generateQuestions(inputText.trim());
       return { isSimpleTask: false, questions };
     }
   }
 
   async createSimpleTask(taskDescription: string): Promise<Goal> {
+    // Validate input parameters
+    if (!taskDescription || typeof taskDescription !== 'string' || taskDescription.trim().length === 0) {
+      throw new Error('Task description is required and cannot be empty');
+    }
+
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
     const today = new Date().toISOString().split('T')[0];
     
-    console.log('📝 Creating simple task:', taskDescription);
+    const cleanTaskDescription = taskDescription.trim();
+    console.log('📝 Creating simple task:', cleanTaskDescription);
     
     // Create goal
     const { data: goal, error: goalError } = await supabase
       .from('goals')
       .insert({
         owner_id: user.id,
-        title: taskDescription,
+        title: cleanTaskDescription,
         duration_days: 1,
         start_date: today,
         end_date: today,
@@ -49,7 +64,7 @@ export class GoalService {
           daily_plan: [{
             day: 1,
             tasks: [{
-              description: taskDescription,
+              description: cleanTaskDescription,
               estimated_duration_minutes: 30
             }]
           }]
@@ -66,7 +81,7 @@ export class GoalService {
       .insert({
         goal_id: goal.id,
         owner_id: user.id,
-        description: taskDescription,
+        description: cleanTaskDescription,
         day_number: 1,
         scheduled_date: today,
         duration_minutes: 30,
@@ -84,13 +99,26 @@ export class GoalService {
     durationDays: number,
     answers: Record<string, string>
   ): Promise<Goal> {
+    // Validate input parameters
+    if (!goalTitle || typeof goalTitle !== 'string' || goalTitle.trim().length === 0) {
+      throw new Error('Goal title is required and cannot be empty');
+    }
+    
+    if (!durationDays || typeof durationDays !== 'number' || durationDays < 1) {
+      throw new Error('Duration must be a positive number');
+    }
+    
+    if (!answers || typeof answers !== 'object') {
+      throw new Error('Answers must be provided as an object');
+    }
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
-    console.log('🧠 Creating complex goal with AI plan:', goalTitle);
+    const cleanGoalTitle = goalTitle.trim();
+    console.log('🧠 Creating complex goal with AI plan:', cleanGoalTitle);
 
     // Generate AI plan
-    const plan = await aiService.generatePlan(goalTitle, durationDays, answers);
+    const plan = await aiService.generatePlan(cleanGoalTitle, durationDays, answers);
     
     const startDate = new Date();
     const endDate = new Date(startDate);
@@ -101,7 +129,7 @@ export class GoalService {
       .from('goals')
       .insert({
         owner_id: user.id,
-        title: goalTitle,
+        title: cleanGoalTitle,
         duration_days: durationDays,
         start_date: startDate.toISOString().split('T')[0],
         end_date: endDate.toISOString().split('T')[0],
