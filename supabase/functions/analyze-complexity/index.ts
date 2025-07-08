@@ -35,7 +35,17 @@ serve(async (req) => {
 
     if (!input_text || typeof input_text !== 'string' || input_text.trim().length === 0) {
       console.warn('⚠️ Missing or invalid input_text parameter')
-      return createErrorResponse('Missing or invalid input_text parameter', 'Complex Goal')
+      return new Response(
+        JSON.stringify({
+          complexity: 'Complex Goal',
+          debug: 'Missing or invalid input_text parameter, using fallback',
+          ai_powered: false
+        }),
+        { 
+          status: 200,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
     }
 
     const cleanInput = input_text.trim()
@@ -81,7 +91,17 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('💥 Error in analyze-complexity:', error)
-    return createErrorResponse('Unexpected error occurred', 'Complex Goal')
+    return new Response(
+      JSON.stringify({
+        complexity: 'Complex Goal',
+        debug: 'Unexpected error occurred, using fallback',
+        ai_powered: false
+      }),
+      { 
+        status: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      }
+    )
   }
 })
 
@@ -182,19 +202,4 @@ function analyzeWithRules(inputText: string): 'Simple Task' | 'Complex Goal' {
     // Default based on length and structure
     return text.length < 30 && !text.includes(' to ') ? 'Simple Task' : 'Complex Goal'
   }
-}
-
-function createErrorResponse(reason: string, fallbackComplexity: 'Simple Task' | 'Complex Goal') {
-  return new Response(
-    JSON.stringify({
-      error: reason,
-      complexity: fallbackComplexity,
-      debug: `${reason}, using fallback`,
-      ai_powered: false
-    }),
-    { 
-      status: 500, 
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-    }
-  )
 }
