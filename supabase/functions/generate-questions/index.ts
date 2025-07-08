@@ -128,7 +128,7 @@ serve(async (req) => {
     
     return new Response(
       JSON.stringify({ 
-        error: error.message,
+        error: String(error),
         questions: fallbackQuestions,
         debug: 'Error occurred, using fallback questions'
       }),

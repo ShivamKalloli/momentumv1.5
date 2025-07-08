@@ -81,7 +81,7 @@ serve(async (req) => {
     
     return new Response(
       JSON.stringify({ 
-        error: error.message,
+        error: String(error),
         complexity: 'Complex Goal', // safe fallback
         debug: 'Error occurred, using fallback'
       }),
