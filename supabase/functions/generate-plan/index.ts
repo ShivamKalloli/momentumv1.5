@@ -27,7 +27,7 @@ serve(async (req) => {
             plan: generateFallbackPlan('Default Goal', 7, {})
           }),
           { 
-            status: 400, 
+            status: 200, 
             headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
           }
         )
@@ -47,7 +47,7 @@ serve(async (req) => {
           plan: generateFallbackPlan('Default Goal', 7, {})
         }),
         { 
-          status: 400, 
+          status: 200, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
       )
@@ -75,7 +75,7 @@ serve(async (req) => {
         debug: 'Error occurred, using fallback plan'
       }),
       { 
-        status: 500, 
+        status: 200, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     )
