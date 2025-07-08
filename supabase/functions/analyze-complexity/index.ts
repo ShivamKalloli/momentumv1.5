@@ -108,6 +108,10 @@ User input: "${inputText}"
 Respond with ONLY "Simple Task" or "Complex Goal" - no other text.
 `
 
+  if (!GEMINI_API_KEY) {
+    throw new Error('Gemini API key not configured')
+  }
+
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {
     method: 'POST',
     headers: {
@@ -127,7 +131,8 @@ Respond with ONLY "Simple Task" or "Complex Goal" - no other text.
   })
 
   if (!response.ok) {
-    throw new Error(`Gemini API error: ${response.status}`)
+    const errorText = await response.text()
+    throw new Error(`Gemini API error: ${response.status} - ${errorText}`)
   }
 
   const data = await response.json()

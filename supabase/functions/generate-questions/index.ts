@@ -107,6 +107,10 @@ Return ONLY a JSON array of question strings, no other text:
 ["question 1", "question 2", "question 3", "question 4", "question 5"]
 `
 
+  if (!GEMINI_API_KEY) {
+    throw new Error('Gemini API key not configured')
+  }
+
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {
     method: 'POST',
     headers: {
@@ -126,7 +130,8 @@ Return ONLY a JSON array of question strings, no other text:
   })
 
   if (!response.ok) {
-    throw new Error(`Gemini API error: ${response.status}`)
+    const errorText = await response.text()
+    throw new Error(`Gemini API error: ${response.status} - ${errorText}`)
   }
 
   const data = await response.json()

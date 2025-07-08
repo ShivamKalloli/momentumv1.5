@@ -162,6 +162,10 @@ Return ONLY a JSON object in this exact format:
 }
 `
 
+  if (!GEMINI_API_KEY) {
+    throw new Error('Gemini API key not configured')
+  }
+
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`, {
     method: 'POST',
     headers: {
@@ -181,7 +185,8 @@ Return ONLY a JSON object in this exact format:
   })
 
   if (!response.ok) {
-    throw new Error(`Gemini API error: ${response.status}`)
+    const errorText = await response.text()
+    throw new Error(`Gemini API error: ${response.status} - ${errorText}`)
   }
 
   const data = await response.json()
@@ -496,17 +501,14 @@ function generateWithRules(goalTitle: string, durationDays: number, answers: Rec
 }
 
 function createErrorResponse(reason: string, goalTitle: string, durationDays: number, answers: Record<string, string>) {
-  const plan = generateWithRules(goalTitle, durationDays, answers)
-  
   return new Response(
     JSON.stringify({
       error: reason,
-      plan,
-      debug: `${reason}, using fallback plan`,
+      debug: `${reason} - AI service required`,
       ai_powered: false
     }),
     { 
-      status: 200, 
+      status: 500, 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
     }
   )
