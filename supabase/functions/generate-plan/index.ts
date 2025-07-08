@@ -12,7 +12,33 @@ serve(async (req) => {
   }
 
   try {
-    const { goal_title, duration_days, answers_to_questions } = await req.json()
+    // Check for empty request body before parsing JSON
+    let requestBody = {}
+    const contentLength = req.headers.get('content-length')
+    
+    if (contentLength !== '0' && contentLength !== null) {
+      try {
+        requestBody = await req.json()
+      } catch (jsonError) {
+        console.error('JSON parsing error:', jsonError)
+        return new Response(
+          JSON.stringify({ 
+            error: 'Invalid JSON in request body',
+            plan: generateFallbackPlan('Default Goal', 7, {})
+          }),
+          { 
+            status: 400, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        )
+      }
+    }
+
+    const { goal_title, duration_days, answers_to_questions } = requestBody as { 
+      goal_title?: string, 
+      duration_days?: number, 
+      answers_to_questions?: Record<string, string> 
+    }
 
     if (!goal_title || !duration_days) {
       return new Response(

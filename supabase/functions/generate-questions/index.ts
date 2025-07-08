@@ -12,7 +12,34 @@ serve(async (req) => {
   }
 
   try {
-    const { goal_title } = await req.json()
+    // Check for empty request body before parsing JSON
+    let requestBody = {}
+    const contentLength = req.headers.get('content-length')
+    
+    if (contentLength !== '0' && contentLength !== null) {
+      try {
+        requestBody = await req.json()
+      } catch (jsonError) {
+        console.error('JSON parsing error:', jsonError)
+        return new Response(
+          JSON.stringify({ 
+            error: 'Invalid JSON in request body',
+            questions: [
+              'What is your current experience level with this goal?',
+              'How much time can you realistically dedicate daily?',
+              'What resources or support do you have available?',
+              'How will you measure success and stay motivated?'
+            ]
+          }),
+          { 
+            status: 400, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        )
+      }
+    }
+
+    const { goal_title } = requestBody as { goal_title?: string }
 
     if (!goal_title || typeof goal_title !== 'string') {
       return new Response(

@@ -12,7 +12,29 @@ serve(async (req) => {
   }
 
   try {
-    const { input_text } = await req.json()
+    // Check for empty request body before parsing JSON
+    let requestBody = {}
+    const contentLength = req.headers.get('content-length')
+    
+    if (contentLength !== '0' && contentLength !== null) {
+      try {
+        requestBody = await req.json()
+      } catch (jsonError) {
+        console.error('JSON parsing error:', jsonError)
+        return new Response(
+          JSON.stringify({ 
+            error: 'Invalid JSON in request body',
+            complexity: 'Simple Task' // fallback
+          }),
+          { 
+            status: 400, 
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+          }
+        )
+      }
+    }
+
+    const { input_text } = requestBody as { input_text?: string }
 
     if (!input_text || typeof input_text !== 'string') {
       return new Response(
