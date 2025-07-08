@@ -46,7 +46,7 @@ class AIService {
       
       if (error) {
         console.error(`❌ Supabase function error for ${functionName}:`, error);
-        throw new Error(`AI service failed: ${error.message}`);
+        throw new Error(`Edge Function error: ${error.message}`);
       }
       
       if (!data) {
@@ -57,14 +57,22 @@ class AIService {
       // Check if AI actually worked
       if (!data.ai_powered) {
         console.warn(`⚠️ ${functionName}: AI not available, function used fallback`);
-        throw new Error('AI service not available - using fallback would defeat the purpose');
+        // Don't throw error for fallback responses, just log the warning
+        console.log(`✅ ${functionName}: Using fallback analysis`);
       }
       
-      console.log(`✅ ${functionName}: Successfully used Gemini AI`);
+      if (data.ai_powered) {
+        console.log(`✅ ${functionName}: Successfully used Gemini AI`);
+      }
       return data;
     } catch (error: any) {
       console.error(`💥 Failed to call AI function ${functionName}:`, error);
-      throw new Error(`AI service failed: ${error.message}. Please check your Gemini API key and try again.`);
+      // Only mention Gemini API key if it's actually a Gemini-related error
+      if (error.message.includes('Gemini') || error.message.includes('API key')) {
+        throw new Error(`AI service failed: ${error.message}. Please check your Gemini API key and try again.`);
+      } else {
+        throw new Error(`AI service failed: ${error.message}`);
+      }
     }
   }
 
