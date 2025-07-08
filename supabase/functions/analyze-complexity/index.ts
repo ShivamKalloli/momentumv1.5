@@ -12,38 +12,49 @@ serve(async (req) => {
   }
 
   try {
-    // Check for empty request body before parsing JSON
-    let requestBody = {}
-    const contentLength = req.headers.get('content-length')
+    console.log('🔍 Analyze complexity function called')
     
-    if (contentLength !== '0' && contentLength !== null) {
-      try {
-        requestBody = await req.json()
-      } catch (jsonError) {
-        console.error('JSON parsing error:', jsonError)
-        return new Response(
-          JSON.stringify({ 
-            error: 'Invalid JSON in request body',
-            complexity: 'Simple Task' // fallback
-          }),
-          { 
-            status: 400, 
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-          }
-        )
+    // Parse request body safely
+    let requestBody = {}
+    try {
+      const text = await req.text()
+      console.log('📥 Raw request body:', text)
+      
+      if (text && text.trim()) {
+        requestBody = JSON.parse(text)
       }
+    } catch (parseError) {
+      console.error('❌ JSON parsing error:', parseError)
+      const fallbackResponse = {
+        error: 'Invalid JSON in request body',
+        complexity: 'Complex Goal',
+        debug: 'JSON parsing failed, using fallback'
+      }
+      
+      return new Response(
+        JSON.stringify(fallbackResponse),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
     }
 
     const { input_text } = requestBody as { input_text?: string }
+    console.log('📝 Input text:', input_text)
 
     if (!input_text || typeof input_text !== 'string') {
+      console.warn('⚠️ Missing or invalid input_text parameter')
+      const fallbackResponse = {
+        error: 'Missing or invalid input_text parameter',
+        complexity: 'Complex Goal',
+        debug: 'Invalid input, using fallback'
+      }
+      
       return new Response(
-        JSON.stringify({ 
-          error: 'Missing or invalid input_text parameter',
-          complexity: 'Simple Task' // fallback
-        }),
+        JSON.stringify(fallbackResponse),
         { 
-          status: 400, 
+          status: 200, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
       )
@@ -51,6 +62,7 @@ serve(async (req) => {
 
     // Simple complexity analysis logic
     const text = input_text.toLowerCase().trim()
+    console.log('🔍 Analyzing text:', text)
     
     // Complex goal indicators
     const complexKeywords = [
@@ -88,27 +100,34 @@ serve(async (req) => {
       complexity = text.length < 30 && !text.includes(' to ') ? 'Simple Task' : 'Complex Goal'
     }
 
+    console.log('✅ Analysis complete:', complexity)
+    
+    const response = { 
+      complexity,
+      debug: `Analyzed "${input_text}" - Keywords: complex=${hasComplexKeywords}, simple=${hasSimpleKeywords}, time=${hasTimeIndicator}, length=${text.length}`
+    }
+
     return new Response(
-      JSON.stringify({ 
-        complexity,
-        debug: `Analyzed "${input_text}" - Keywords: complex=${hasComplexKeywords}, simple=${hasSimpleKeywords}, time=${hasTimeIndicator}, length=${text.length}`
-      }),
+      JSON.stringify(response),
       { 
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     )
 
   } catch (error) {
-    console.error('Error in analyze-complexity:', error)
+    console.error('💥 Error in analyze-complexity:', error)
+    
+    const errorResponse = {
+      error: String(error),
+      complexity: 'Complex Goal',
+      debug: 'Unexpected error occurred, using fallback'
+    }
     
     return new Response(
-      JSON.stringify({ 
-        error: String(error),
-        complexity: 'Complex Goal', // safe fallback
-        debug: 'Error occurred, using fallback'
-      }),
+      JSON.stringify(errorResponse),
       { 
-        status: 500, 
+        status: 200, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     )

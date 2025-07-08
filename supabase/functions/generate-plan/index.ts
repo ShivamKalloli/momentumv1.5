@@ -12,26 +12,32 @@ serve(async (req) => {
   }
 
   try {
-    // Check for empty request body before parsing JSON
-    let requestBody = {}
-    const contentLength = req.headers.get('content-length')
+    console.log('📋 Generate plan function called')
     
-    if (contentLength !== '0' && contentLength !== null) {
-      try {
-        requestBody = await req.json()
-      } catch (jsonError) {
-        console.error('JSON parsing error:', jsonError)
-        return new Response(
-          JSON.stringify({ 
-            error: 'Invalid JSON in request body',
-            plan: generateFallbackPlan('Default Goal', 7, {})
-          }),
-          { 
-            status: 200, 
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-          }
-        )
+    // Parse request body safely
+    let requestBody = {}
+    try {
+      const text = await req.text()
+      console.log('📥 Raw request body:', text)
+      
+      if (text && text.trim()) {
+        requestBody = JSON.parse(text)
       }
+    } catch (parseError) {
+      console.error('❌ JSON parsing error:', parseError)
+      const fallbackResponse = {
+        error: 'Invalid JSON in request body',
+        plan: generateFallbackPlan('Default Goal', 7, {}),
+        debug: 'JSON parsing failed, using fallback plan'
+      }
+      
+      return new Response(
+        JSON.stringify(fallbackResponse),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
     }
 
     const { goal_title, duration_days, answers_to_questions } = requestBody as { 
@@ -40,12 +46,18 @@ serve(async (req) => {
       answers_to_questions?: Record<string, string> 
     }
 
+    console.log('🎯 Goal:', goal_title, 'Duration:', duration_days, 'days')
+
     if (!goal_title || !duration_days) {
+      console.warn('⚠️ Missing required parameters')
+      const fallbackResponse = {
+        error: 'Missing required parameters: goal_title and duration_days',
+        plan: generateFallbackPlan('Default Goal', 7, {}),
+        debug: 'Missing parameters, using fallback plan'
+      }
+      
       return new Response(
-        JSON.stringify({ 
-          error: 'Missing required parameters: goal_title and duration_days',
-          plan: generateFallbackPlan('Default Goal', 7, {})
-        }),
+        JSON.stringify(fallbackResponse),
         { 
           status: 200, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -54,26 +66,32 @@ serve(async (req) => {
     }
 
     const plan = generatePlan(goal_title, duration_days, answers_to_questions || {})
+    console.log('✅ Plan generated successfully')
+
+    const response = {
+      plan,
+      debug: `Generated ${duration_days}-day plan for "${goal_title}"`
+    }
 
     return new Response(
-      JSON.stringify({ 
-        plan,
-        debug: `Generated ${duration_days}-day plan for "${goal_title}"`
-      }),
+      JSON.stringify(response),
       { 
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     )
 
   } catch (error) {
-    console.error('Error in generate-plan:', error)
+    console.error('💥 Error in generate-plan:', error)
+    
+    const errorResponse = {
+      error: String(error),
+      plan: generateFallbackPlan('Default Goal', 7, {}),
+      debug: 'Unexpected error occurred, using fallback plan'
+    }
     
     return new Response(
-      JSON.stringify({ 
-        error: error.message,
-        plan: generateFallbackPlan('Default Goal', 7, {}),
-        debug: 'Error occurred, using fallback plan'
-      }),
+      JSON.stringify(errorResponse),
       { 
         status: 200, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -83,6 +101,8 @@ serve(async (req) => {
 })
 
 function generatePlan(goalTitle: string, durationDays: number, answers: Record<string, string>) {
+  console.log('🛠️ Generating plan for:', goalTitle)
+  
   const goal = goalTitle.toLowerCase()
   const answerValues = Object.values(answers).join(' ').toLowerCase()
   
@@ -99,37 +119,104 @@ function generatePlan(goalTitle: string, durationDays: number, answers: Record<s
     const tasks = []
     
     if (goal.includes('learn') || goal.includes('study')) {
-      if (phase === 1) { // Foundation phase
-        tasks.push({
-          description: isBeginnerLevel 
-            ? `Learn the fundamentals of ${goalTitle}` 
-            : `Review and strengthen foundation knowledge in ${goalTitle}`,
-          estimated_duration_minutes: hasLimitedTime ? 30 : 45
-        })
-        if (!hasLimitedTime) {
+      if (goal.includes('python') || goal.includes('programming') || goal.includes('code') || goal.includes('dsa') || goal.includes('algorithm')) {
+        if (phase === 1) { // Foundation phase
           tasks.push({
-            description: 'Research additional learning resources and create study plan',
+            description: isBeginnerLevel 
+              ? `Learn Python basics: variables, data types, and basic syntax` 
+              : `Review Python fundamentals and set up development environment`,
+            estimated_duration_minutes: hasLimitedTime ? 45 : 60
+          })
+          if (!hasLimitedTime) {
+            tasks.push({
+              description: 'Practice coding exercises on basic concepts',
+              estimated_duration_minutes: 30
+            })
+          }
+        } else if (phase === 2) { // Practice phase
+          tasks.push({
+            description: `Practice Python concepts: functions, loops, and data structures`,
+            estimated_duration_minutes: hasLimitedTime ? 60 : 90
+          })
+          tasks.push({
+            description: 'Work on small coding projects or challenges',
+            estimated_duration_minutes: 30
+          })
+        } else { // Application phase
+          tasks.push({
+            description: `Build a Python project: web scraper, calculator, or game`,
+            estimated_duration_minutes: hasLimitedTime ? 90 : 120
+          })
+          tasks.push({
+            description: 'Review code, debug, and optimize your project',
+            estimated_duration_minutes: 30
+          })
+        }
+      } else if (goal.includes('guitar') || goal.includes('music') || goal.includes('instrument')) {
+        if (phase === 1) { // Foundation phase
+          tasks.push({
+            description: isBeginnerLevel 
+              ? `Learn basic guitar chords: G, C, D, Em` 
+              : `Review chord progressions and practice scales`,
+            estimated_duration_minutes: hasLimitedTime ? 30 : 45
+          })
+          tasks.push({
+            description: 'Practice chord transitions and strumming patterns',
+            estimated_duration_minutes: 15
+          })
+        } else if (phase === 2) { // Practice phase
+          tasks.push({
+            description: `Learn and practice simple songs with basic chords`,
+            estimated_duration_minutes: hasLimitedTime ? 45 : 60
+          })
+          tasks.push({
+            description: 'Work on rhythm and timing with metronome',
+            estimated_duration_minutes: 15
+          })
+        } else { // Application phase
+          tasks.push({
+            description: `Learn more complex songs and techniques (barre chords, fingerpicking)`,
+            estimated_duration_minutes: hasLimitedTime ? 60 : 75
+          })
+          tasks.push({
+            description: 'Record yourself playing and analyze progress',
             estimated_duration_minutes: 15
           })
         }
-      } else if (phase === 2) { // Practice phase
-        tasks.push({
-          description: `Practice key concepts and skills in ${goalTitle}`,
-          estimated_duration_minutes: hasLimitedTime ? 45 : 60
-        })
-        tasks.push({
-          description: 'Review progress and identify areas for improvement',
-          estimated_duration_minutes: 15
-        })
-      } else { // Application phase
-        tasks.push({
-          description: `Apply knowledge through projects or real-world scenarios`,
-          estimated_duration_minutes: hasLimitedTime ? 60 : 90
-        })
-        tasks.push({
-          description: 'Share progress and seek feedback from community or mentors',
-          estimated_duration_minutes: 15
-        })
+      } else {
+        // Generic learning goal
+        if (phase === 1) { // Foundation phase
+          tasks.push({
+            description: isBeginnerLevel 
+              ? `Learn the fundamentals of ${goalTitle}` 
+              : `Review and strengthen foundation knowledge in ${goalTitle}`,
+            estimated_duration_minutes: hasLimitedTime ? 30 : 45
+          })
+          if (!hasLimitedTime) {
+            tasks.push({
+              description: 'Research additional learning resources and create study plan',
+              estimated_duration_minutes: 15
+            })
+          }
+        } else if (phase === 2) { // Practice phase
+          tasks.push({
+            description: `Practice key concepts and skills in ${goalTitle}`,
+            estimated_duration_minutes: hasLimitedTime ? 45 : 60
+          })
+          tasks.push({
+            description: 'Review progress and identify areas for improvement',
+            estimated_duration_minutes: 15
+          })
+        } else { // Application phase
+          tasks.push({
+            description: `Apply knowledge through projects or real-world scenarios`,
+            estimated_duration_minutes: hasLimitedTime ? 60 : 90
+          })
+          tasks.push({
+            description: 'Share progress and seek feedback from community or mentors',
+            estimated_duration_minutes: 15
+          })
+        }
       }
     } else if (goal.includes('fitness') || goal.includes('workout')) {
       if (phase === 1) { // Building routine
@@ -233,6 +320,12 @@ function generatePlan(goalTitle: string, durationDays: number, answers: Record<s
   // Generate insights based on goal and answers
   let insights = `Your ${durationDays}-day plan for "${goalTitle}" is structured in ${phases} phases. `
   
+  if (goal.includes('python') || goal.includes('programming')) {
+    insights += 'You\'ll start with Python basics, then move to practical projects. Consistent daily practice is key to building programming skills. '
+  } else if (goal.includes('guitar') || goal.includes('music')) {
+    insights += 'You\'ll begin with basic chords and progress to playing songs. Regular practice, even for short periods, will build muscle memory and improve your playing. '
+  }
+  
   if (isBeginnerLevel) {
     insights += 'Starting with fundamentals will build a strong foundation for long-term success. '
   } else if (isAdvanced) {
@@ -248,7 +341,37 @@ function generatePlan(goalTitle: string, durationDays: number, answers: Record<s
   // Generate knowledge gaps based on goal type
   const knowledge_gaps = []
   
-  if (goal.includes('learn') || goal.includes('study')) {
+  if (goal.includes('python') || goal.includes('programming') || goal.includes('dsa')) {
+    knowledge_gaps.push(
+      {
+        gap: 'Programming fundamentals and syntax',
+        resource_recommendation: 'Use interactive platforms like Codecademy, freeCodeCamp, or Python.org tutorial'
+      },
+      {
+        gap: 'Practical coding experience',
+        resource_recommendation: 'Practice on HackerRank, LeetCode, or build personal projects on GitHub'
+      },
+      {
+        gap: 'Development environment setup',
+        resource_recommendation: 'Learn to use VS Code, PyCharm, or Jupyter notebooks for Python development'
+      }
+    )
+  } else if (goal.includes('guitar') || goal.includes('music')) {
+    knowledge_gaps.push(
+      {
+        gap: 'Basic chord formations and transitions',
+        resource_recommendation: 'Use apps like Yousician, JustinGuitar, or YouTube tutorials for visual learning'
+      },
+      {
+        gap: 'Rhythm and timing skills',
+        resource_recommendation: 'Practice with a metronome app and learn basic strumming patterns'
+      },
+      {
+        gap: 'Music theory basics',
+        resource_recommendation: 'Learn about scales, chord progressions, and song structure through online courses'
+      }
+    )
+  } else if (goal.includes('learn') || goal.includes('study')) {
     knowledge_gaps.push(
       {
         gap: 'Foundational knowledge and concepts',
@@ -318,6 +441,8 @@ function generatePlan(goalTitle: string, durationDays: number, answers: Record<s
 }
 
 function generateFallbackPlan(goalTitle: string, durationDays: number, answers: Record<string, string>) {
+  console.log('🔄 Generating fallback plan for:', goalTitle)
+  
   const daily_plan = []
   
   for (let day = 1; day <= durationDays; day++) {

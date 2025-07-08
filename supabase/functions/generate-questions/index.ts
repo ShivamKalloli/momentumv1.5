@@ -12,46 +12,57 @@ serve(async (req) => {
   }
 
   try {
-    // Check for empty request body before parsing JSON
-    let requestBody = {}
-    const contentLength = req.headers.get('content-length')
+    console.log('❓ Generate questions function called')
     
-    if (contentLength !== '0' && contentLength !== null) {
-      try {
-        requestBody = await req.json()
-      } catch (jsonError) {
-        console.error('JSON parsing error:', jsonError)
-        return new Response(
-          JSON.stringify({ 
-            error: 'Invalid JSON in request body',
-            questions: [
-              'What is your current experience level with this goal?',
-              'How much time can you realistically dedicate daily?',
-              'What resources or support do you have available?',
-              'How will you measure success and stay motivated?'
-            ]
-          }),
-          { 
-            status: 200, 
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
-          }
-        )
+    // Parse request body safely
+    let requestBody = {}
+    try {
+      const text = await req.text()
+      console.log('📥 Raw request body:', text)
+      
+      if (text && text.trim()) {
+        requestBody = JSON.parse(text)
       }
+    } catch (parseError) {
+      console.error('❌ JSON parsing error:', parseError)
+      const fallbackResponse = {
+        error: 'Invalid JSON in request body',
+        questions: [
+          'What is your current experience level with this goal?',
+          'How much time can you realistically dedicate daily?',
+          'What resources or support do you have available?',
+          'How will you measure success and stay motivated?'
+        ],
+        debug: 'JSON parsing failed, using fallback questions'
+      }
+      
+      return new Response(
+        JSON.stringify(fallbackResponse),
+        { 
+          status: 200, 
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+        }
+      )
     }
 
     const { goal_title } = requestBody as { goal_title?: string }
+    console.log('🎯 Goal title:', goal_title)
 
     if (!goal_title || typeof goal_title !== 'string') {
+      console.warn('⚠️ Missing or invalid goal_title parameter')
+      const fallbackResponse = {
+        error: 'Missing or invalid goal_title parameter',
+        questions: [
+          'What is your current experience level with this goal?',
+          'How much time can you realistically dedicate daily?',
+          'What resources or support do you have available?',
+          'How will you measure success and stay motivated?'
+        ],
+        debug: 'Invalid goal title, using fallback questions'
+      }
+      
       return new Response(
-        JSON.stringify({ 
-          error: 'Missing or invalid goal_title parameter',
-          questions: [
-            'What is your current experience level with this goal?',
-            'How much time can you realistically dedicate daily?',
-            'What resources or support do you have available?',
-            'How will you measure success and stay motivated?'
-          ]
-        }),
+        JSON.stringify(fallbackResponse),
         { 
           status: 200, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -63,6 +74,8 @@ serve(async (req) => {
     const goal = goal_title.toLowerCase()
     let questions: string[] = []
 
+    console.log('🔍 Analyzing goal type for:', goal)
+
     if (goal.includes('learn') || goal.includes('study')) {
       if (goal.includes('language')) {
         questions = [
@@ -72,13 +85,21 @@ serve(async (req) => {
           'What specific skills do you want to focus on most (speaking, writing, reading)?',
           'Do you have any previous experience with similar languages?'
         ]
-      } else if (goal.includes('code') || goal.includes('program') || goal.includes('software')) {
+      } else if (goal.includes('code') || goal.includes('program') || goal.includes('software') || goal.includes('python') || goal.includes('javascript') || goal.includes('dsa') || goal.includes('algorithm')) {
         questions = [
           'What is your programming experience level?',
           'Which programming language or technology interests you most?',
           'Do you have a specific project or application in mind?',
           'How much time can you dedicate to coding daily?',
           'Do you prefer hands-on projects or structured tutorials?'
+        ]
+      } else if (goal.includes('guitar') || goal.includes('piano') || goal.includes('music') || goal.includes('instrument')) {
+        questions = [
+          'What is your current musical experience level?',
+          'How much time can you dedicate to practice daily?',
+          'Do you have access to an instrument?',
+          'What style of music interests you most?',
+          'Do you prefer learning songs or focusing on technique?'
         ]
       } else {
         questions = [
@@ -132,18 +153,23 @@ serve(async (req) => {
       ]
     }
 
+    console.log('✅ Generated', questions.length, 'questions')
+
+    const response = { 
+      questions,
+      debug: `Generated ${questions.length} questions for goal: "${goal_title}"`
+    }
+
     return new Response(
-      JSON.stringify({ 
-        questions,
-        debug: `Generated ${questions.length} questions for goal: "${goal_title}"`
-      }),
+      JSON.stringify(response),
       { 
+        status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     )
 
   } catch (error) {
-    console.error('Error in generate-questions:', error)
+    console.error('💥 Error in generate-questions:', error)
     
     // Fallback questions
     const fallbackQuestions = [
@@ -153,12 +179,14 @@ serve(async (req) => {
       'How will you measure success and stay motivated?'
     ]
     
+    const errorResponse = {
+      error: String(error),
+      questions: fallbackQuestions,
+      debug: 'Unexpected error occurred, using fallback questions'
+    }
+    
     return new Response(
-      JSON.stringify({ 
-        error: String(error),
-        questions: fallbackQuestions,
-        debug: 'Error occurred, using fallback questions'
-      }),
+      JSON.stringify(errorResponse),
       { 
         status: 200, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
