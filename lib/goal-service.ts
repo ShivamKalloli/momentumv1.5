@@ -8,53 +8,36 @@ export class GoalService {
     questions?: string[];
     goal?: Goal;
   }> {
-    // Validate and sanitize input parameters
-    const sanitizedInputText = typeof inputText === 'string' ? inputText.trim() : '';
-    if (!sanitizedInputText || sanitizedInputText.length === 0) {
-      throw new Error('Goal description is required and cannot be empty');
-    }
+    console.log('🎯 Creating goal:', inputText, 'Duration:', durationDays);
     
-    const sanitizedDurationDays = typeof durationDays === 'number' ? Math.floor(Math.abs(durationDays)) : Math.floor(Math.abs(Number(durationDays) || 30));
-    if (sanitizedDurationDays < 1) {
-      throw new Error('Duration must be a positive number');
-    }
-
-    console.log('🎯 Creating goal:', sanitizedInputText, 'Duration:', sanitizedDurationDays);
-    
-    const complexity = await aiService.analyzeComplexity(sanitizedInputText);
+    const complexity = await aiService.analyzeComplexity(inputText);
     console.log('📊 Goal complexity:', complexity);
     
     if (complexity === 'Simple Task') {
       // Create simple task directly
-      const goal = await this.createSimpleTask(sanitizedInputText);
+      const goal = await this.createSimpleTask(inputText);
       return { isSimpleTask: true, goal };
     } else {
       // Generate questions for complex goal
-      const questions = await aiService.generateQuestions(sanitizedInputText);
+      const questions = await aiService.generateQuestions(inputText);
       return { isSimpleTask: false, questions };
     }
   }
 
   async createSimpleTask(taskDescription: string): Promise<Goal> {
-    // Validate and sanitize input parameters
-    const sanitizedTaskDescription = typeof taskDescription === 'string' ? taskDescription.trim() : '';
-    if (!sanitizedTaskDescription || sanitizedTaskDescription.length === 0) {
-      throw new Error('Task description is required and cannot be empty');
-    }
-
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
     const today = new Date().toISOString().split('T')[0];
     
-    console.log('📝 Creating simple task:', sanitizedTaskDescription);
+    console.log('📝 Creating simple task:', taskDescription);
     
     // Create goal
     const { data: goal, error: goalError } = await supabase
       .from('goals')
       .insert({
         owner_id: user.id,
-        title: sanitizedTaskDescription,
+        title: taskDescription,
         duration_days: 1,
         start_date: today,
         end_date: today,
@@ -66,7 +49,7 @@ export class GoalService {
           daily_plan: [{
             day: 1,
             tasks: [{
-              description: sanitizedTaskDescription,
+              description: taskDescription,
               estimated_duration_minutes: 30
             }]
           }]
@@ -83,7 +66,7 @@ export class GoalService {
       .insert({
         goal_id: goal.id,
         owner_id: user.id,
-        description: sanitizedTaskDescription,
+        description: taskDescription,
         day_number: 1,
         scheduled_date: today,
         duration_minutes: 30,
@@ -101,53 +84,29 @@ export class GoalService {
     durationDays: number,
     answers: Record<string, string>
   ): Promise<Goal> {
-    // Validate and sanitize input parameters
-    const sanitizedGoalTitle = typeof goalTitle === 'string' ? goalTitle.trim() : '';
-    if (!sanitizedGoalTitle || sanitizedGoalTitle.length === 0) {
-      throw new Error('Goal title is required and cannot be empty');
-    }
-    
-    const sanitizedDurationDays = typeof durationDays === 'number' ? Math.floor(Math.abs(durationDays)) : Math.floor(Math.abs(Number(durationDays) || 30));
-    if (sanitizedDurationDays < 1) {
-      throw new Error('Duration must be a positive number');
-    }
-    
-    // Sanitize answers object
-    const sanitizedAnswers = answers && typeof answers === 'object' ? 
-      Object.fromEntries(
-        Object.entries(answers)
-          .filter(([key, value]) => typeof key === 'string' && typeof value === 'string')
-          .map(([key, value]) => [key.trim(), value.trim()])
-          .filter(([key, value]) => key.length > 0 && value.length > 0)
-      ) : {};
-    
-    if (Object.keys(sanitizedAnswers).length === 0) {
-      throw new Error('Answers must be provided as an object');
-    }
-    
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) throw new Error('User not authenticated');
 
-    console.log('🧠 Creating complex goal with AI plan:', sanitizedGoalTitle);
+    console.log('🧠 Creating complex goal with AI plan:', goalTitle);
 
     // Generate AI plan
-    const plan = await aiService.generatePlan(sanitizedGoalTitle, sanitizedDurationDays, sanitizedAnswers);
+    const plan = await aiService.generatePlan(goalTitle, durationDays, answers);
     
     const startDate = new Date();
     const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + sanitizedDurationDays - 1);
+    endDate.setDate(endDate.getDate() + durationDays - 1);
 
     // Create goal
     const { data: goal, error: goalError } = await supabase
       .from('goals')
       .insert({
         owner_id: user.id,
-        title: sanitizedGoalTitle,
-        duration_days: sanitizedDurationDays,
+        title: goalTitle,
+        duration_days: durationDays,
         start_date: startDate.toISOString().split('T')[0],
         end_date: endDate.toISOString().split('T')[0],
         status: 'active',
-        user_inputs: sanitizedAnswers,
+        user_inputs: answers,
         full_ai_plan: plan
       })
       .select()

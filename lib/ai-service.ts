@@ -25,62 +25,162 @@ class AIService {
       console.log(`🚀 Calling AI function: ${functionName}`);
       console.log('📤 Payload:', JSON.stringify(payload, null, 2));
       
-      // Validate environment variables
+      // Check if we have valid Supabase configuration
       if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
-        throw new Error('Missing Supabase environment variables');
+        console.error('❌ Missing Supabase environment variables');
+        throw new Error('MISSING_ENV_VARS');
       }
       
-      const { data, error } = await supabase.functions.invoke(functionName, {
-        body: payload,
-        headers: {
-          'Content-Type': 'application/json',
+      // Log the URL being called for debugging
+      const functionUrl = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/${functionName}`;
+      console.log(`🔗 Calling URL: ${functionUrl}`);
+      
+      // Add timeout and better error handling
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+      
+      try {
+        const { data, error } = await supabase.functions.invoke(functionName, {
+          body: payload,
+          headers: {
+            'Content-Type': 'application/json',
+          }
+        });
+        
+        clearTimeout(timeoutId);
+        
+        console.log(`📥 AI function ${functionName} response:`, { 
+          hasData: !!data, 
+          hasError: !!error,
+          errorMessage: error?.message,
+          data: data ? JSON.stringify(data).substring(0, 500) + '...' : null
+        });
+        
+        if (error) {
+          console.error(`❌ Supabase function error for ${functionName}:`, error);
+          
+          // Check if it's a deployment issue
+          if (error.message?.includes('Function not found') || error.message?.includes('404')) {
+            console.warn(`⚠️ Function ${functionName} not found. Check if it's deployed correctly.`);
+            throw new Error(`FUNCTION_NOT_DEPLOYED`);
+          }
+          
+          // Check if it's an API key issue
+          if (error.message?.includes('API key') || error.message?.includes('unauthorized') || error.message?.includes('Invalid API key')) {
+            console.warn(`⚠️ API key issue for ${functionName}. Check your Supabase credentials.`);
+            throw new Error(`API_KEY_ISSUE`);
+          }
+          
+          // Check for network/connection issues
+          if (error.message?.includes('Failed to fetch') || error.message?.includes('network') || error.message?.includes('Failed to send a request')) {
+            console.warn(`⚠️ Network issue for ${functionName}. Check your internet connection and Supabase URL.`);
+            throw new Error(`NETWORK_ERROR`);
+          }
+          
+          throw new Error(`AI_SERVICE_ERROR: ${error.message}`);
         }
-      });
-      
-      console.log(`📥 AI function ${functionName} response:`, { 
-        hasData: !!data, 
-        hasError: !!error,
-        errorMessage: error?.message,
-        aiPowered: data?.ai_powered
-      });
-      
-      if (error) {
-        console.error(`❌ Supabase function error for ${functionName}:`, error);
-        throw new Error(`Edge Function error: ${error.message}`);
+        
+        if (!data) {
+          console.warn(`⚠️ No data received from ${functionName}. Function may have failed silently.`);
+          throw new Error('NO_DATA_RECEIVED');
+        }
+        
+        // Check if the response contains an error from the function itself
+        if (data.error) {
+          console.warn(`⚠️ Function returned error: ${data.error}`);
+          // Don't throw here if we have fallback data
+          if (!data.complexity && !data.questions && !data.plan) {
+            throw new Error(`FUNCTION_ERROR: ${data.error}`);
+          }
+        }
+        
+        // Check if the response contains debug info (indicates function worked)
+        if (data.debug) {
+          console.log(`🔍 Debug info for ${functionName}:`, data.debug);
+        }
+        
+        // Check if function actually worked vs fallback
+        if (data.debug?.includes('Generated') || data.debug?.includes('Analyzed')) {
+          console.log(`✅ ${functionName}: Function executed successfully`);
+        } else if (data.debug?.includes('fallback')) {
+          console.log(`⚠️ ${functionName}: Using fallback (function may have issues)`);
+        } else {
+          console.log(`✅ ${functionName}: Function completed`);
+        }
+        
+        return data;
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        
+        // Handle specific fetch errors
+        if (fetchError.name === 'AbortError') {
+          console.warn(`⚠️ ${functionName} request timed out. Function may be slow or unresponsive.`);
+          throw new Error('REQUEST_TIMEOUT');
+        }
+        
+        // Handle network errors
+        if (fetchError.message?.includes('Failed to fetch') || fetchError.message?.includes('fetch')) {
+          console.warn(`⚠️ ${functionName} network error. Check your connection and Supabase configuration.`);
+          throw new Error('NETWORK_ERROR');
+        }
+        
+        // Re-throw other errors
+        throw fetchError;
       }
-      
-      if (!data) {
-        console.warn(`⚠️ No data received from ${functionName}`);
-        throw new Error('No response from AI service');
-      }
-      
-      // Check if AI actually worked
-      if (!data.ai_powered) {
-        console.warn(`⚠️ ${functionName}: AI not available, function used fallback`);
-        // Don't throw error for fallback responses, just log the warning
-        console.log(`✅ ${functionName}: Using fallback analysis`);
-      }
-      
-      if (data.ai_powered) {
-        console.log(`✅ ${functionName}: Successfully used Gemini AI`);
-      }
-      return data;
     } catch (error: any) {
       console.error(`💥 Failed to call AI function ${functionName}:`, error);
-      // Only mention Gemini API key if it's actually a Gemini-related error
-      if (error.message.includes('Gemini') || error.message.includes('API key')) {
-        throw new Error(`AI service failed: ${error.message}. Please check your Gemini API key and try again.`);
-      } else {
-        throw new Error(`AI service failed: ${error.message}`);
+      
+      // For specific error types, we'll use fallback logic
+      const fallbackErrors = [
+        'FUNCTION_NOT_DEPLOYED',
+        'API_KEY_ISSUE', 
+        'NETWORK_ERROR',
+        'REQUEST_TIMEOUT',
+        'NO_DATA_RECEIVED',
+        'MISSING_ENV_VARS'
+      ];
+      
+      if (fallbackErrors.some(errorType => error.message?.includes(errorType))) {
+        console.log(`🔄 Using fallback logic for ${functionName} due to: ${error.message}`);
+        throw error; // Let the calling function handle fallback
       }
+      
+      // Re-throw other errors
+      throw error;
+    }
+  }
+
+  async testConnection(): Promise<boolean> {
+    try {
+      console.log('🧪 Testing AI service connection...');
+      
+      // Check environment variables first
+      if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
+        console.error('❌ Missing Supabase environment variables');
+        console.log('📝 Please check your .env file contains:');
+        console.log('   EXPO_PUBLIC_SUPABASE_URL=your_supabase_project_url');
+        console.log('   EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key');
+        return false;
+      }
+      
+      console.log('✅ Environment variables found');
+      console.log(`🔗 Supabase URL: ${process.env.EXPO_PUBLIC_SUPABASE_URL}`);
+      console.log(`🔑 Has Anon Key: ${!!process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`);
+      
+      const response = await this.callAIFunction('test-function', {});
+      console.log('✅ Test function response:', response);
+      return response.success === true;
+    } catch (error) {
+      console.error('❌ Test function failed:', error);
+      console.log('💡 Troubleshooting steps:');
+      console.log('   1. Verify your .env file has correct Supabase credentials');
+      console.log('   2. Check that Edge Functions are deployed in Supabase');
+      console.log('   3. Restart your development server after updating .env');
+      return false;
     }
   }
 
   async analyzeComplexity(inputText: string): Promise<'Simple Task' | 'Complex Goal'> {
-    if (!inputText || typeof inputText !== 'string' || inputText.trim().length === 0) {
-      throw new Error('Goal description is required');
-    }
-
     try {
       console.log('🔍 Analyzing complexity for:', inputText);
       const response = await this.callAIFunction('analyze-complexity', {
@@ -90,21 +190,57 @@ class AIService {
       console.log('✅ Complexity analysis result:', response.complexity);
       
       if (!response.complexity || !['Simple Task', 'Complex Goal'].includes(response.complexity)) {
-        throw new Error('Invalid response from AI service');
+        throw new Error('Invalid complexity response from AI');
       }
       
       return response.complexity;
     } catch (error) {
-      console.error('❌ AI complexity analysis failed:', error);
-      throw new Error(`Failed to analyze goal complexity: ${error.message}`);
+      console.warn('⚠️ AI complexity analysis failed, using fallback logic:', error);
+      
+      // Enhanced fallback logic with better classification
+      const text = inputText.toLowerCase().trim();
+      
+      // Simple task indicators
+      const simpleKeywords = [
+        'call', 'email', 'send', 'buy', 'order', 'book', 'schedule',
+        'remind', 'text', 'message', 'pick up', 'drop off', 'pay',
+        'check', 'review', 'update', 'fix', 'clean', 'organize',
+        'submit', 'download', 'upload', 'install', 'delete'
+      ];
+      
+      // Complex goal indicators
+      const complexKeywords = [
+        'learn', 'master', 'achieve', 'build', 'create', 'develop',
+        'improve', 'plan', 'start', 'launch', 'study', 'practice',
+        'train', 'prepare', 'establish', 'design', 'become',
+        'understand', 'explore', 'discover', 'research'
+      ];
+      
+      // Time indicators suggest complexity
+      const timeIndicators = ['days', 'weeks', 'months', 'year', 'daily', 'weekly', 'monthly'];
+      const hasTimeIndicator = timeIndicators.some(indicator => text.includes(indicator));
+      
+      // Check for keywords
+      const hasSimpleKeywords = simpleKeywords.some(keyword => text.includes(keyword));
+      const hasComplexKeywords = complexKeywords.some(keyword => text.includes(keyword));
+      
+      // Decision logic
+      if (hasSimpleKeywords && !hasComplexKeywords && !hasTimeIndicator && text.length < 50) {
+        console.log('📝 Fallback classification: Simple Task');
+        return 'Simple Task';
+      } else if (hasComplexKeywords || hasTimeIndicator || text.length > 100) {
+        console.log('📝 Fallback classification: Complex Goal');
+        return 'Complex Goal';
+      } else {
+        // Default based on length and structure
+        const result = text.length < 30 && !text.includes(' to ') ? 'Simple Task' : 'Complex Goal';
+        console.log('📝 Fallback classification:', result);
+        return result;
+      }
     }
   }
 
   async generateQuestions(goalTitle: string): Promise<string[]> {
-    if (!goalTitle || typeof goalTitle !== 'string' || goalTitle.trim().length === 0) {
-      throw new Error('Goal title is required');
-    }
-
     try {
       console.log('❓ Generating questions for goal:', goalTitle);
       const response = await this.callAIFunction('generate-questions', {
@@ -114,13 +250,61 @@ class AIService {
       console.log('✅ Generated questions:', response.questions?.length, 'questions');
       
       if (!Array.isArray(response.questions) || response.questions.length === 0) {
-        throw new Error('Invalid response from AI service');
+        throw new Error('Invalid questions response from AI');
       }
       
       return response.questions;
     } catch (error) {
-      console.error('❌ AI question generation failed:', error);
-      throw new Error(`Failed to generate questions: ${error.message}`);
+      console.warn('⚠️ AI question generation failed, using fallback logic:', error);
+      
+      // Enhanced fallback questions based on goal type
+      const goal = goalTitle.toLowerCase();
+      
+      if (goal.includes('learn') || goal.includes('study')) {
+        if (goal.includes('language')) {
+          return [
+            'What is your current level in this language?',
+            'How much time can you dedicate to practice daily?',
+            'Do you prefer structured courses or self-study?',
+            'What specific skills do you want to focus on most (speaking, writing, reading)?'
+          ];
+        } else if (goal.includes('code') || goal.includes('program')) {
+          return [
+            'What is your programming experience level?',
+            'Which programming language interests you most?',
+            'Do you have a specific project in mind?',
+            'How much time can you dedicate to coding daily?'
+          ];
+        } else {
+          return [
+            'What is your current knowledge level in this area?',
+            'How much time can you dedicate to learning daily?',
+            'What learning resources do you prefer?',
+            'What specific outcome do you want to achieve?'
+          ];
+        }
+      } else if (goal.includes('fitness') || goal.includes('workout') || goal.includes('run')) {
+        return [
+          'What is your current fitness level?',
+          'How many days per week can you exercise?',
+          'Do you have access to a gym or equipment?',
+          'What is your main motivation for this goal?'
+        ];
+      } else if (goal.includes('business') || goal.includes('startup')) {
+        return [
+          'What is your relevant experience in this area?',
+          'What resources or budget do you have available?',
+          'What is your target timeline for initial results?',
+          'Who is your target audience or market?'
+        ];
+      } else {
+        return [
+          'What is your current experience level with this goal?',
+          'How much time can you realistically dedicate daily?',
+          'What resources or support do you have available?',
+          'How will you measure success and stay motivated?'
+        ];
+      }
     }
   }
 
@@ -129,18 +313,6 @@ class AIService {
     durationDays: number, 
     answers: Record<string, string>
   ): Promise<PlanResponse> {
-    if (!goalTitle || typeof goalTitle !== 'string' || goalTitle.trim().length === 0) {
-      throw new Error('Goal title is required');
-    }
-
-    if (!durationDays || durationDays < 1) {
-      throw new Error('Duration must be at least 1 day');
-    }
-
-    if (!answers || typeof answers !== 'object' || Object.keys(answers).length === 0) {
-      throw new Error('Answers are required');
-    }
-
     try {
       console.log('📋 Generating plan for:', goalTitle, 'Duration:', durationDays, 'days');
       const response = await this.callAIFunction('generate-plan', {
@@ -152,32 +324,89 @@ class AIService {
       console.log('✅ Generated plan with', response.plan?.daily_plan?.length, 'days');
       
       if (!response.plan || !response.plan.daily_plan || !Array.isArray(response.plan.daily_plan)) {
-        throw new Error('Invalid response from AI service');
+        throw new Error('Invalid plan response from AI');
       }
       
       return response.plan;
     } catch (error) {
-      console.error('❌ AI plan generation failed:', error);
-      throw new Error(`Failed to generate plan: ${error.message}`);
+      console.warn('⚠️ AI plan generation failed, using fallback logic:', error);
+      
+      // Enhanced fallback plan
+      return this.generateFallbackPlan(goalTitle, durationDays, answers);
     }
   }
 
-  async testConnection(): Promise<boolean> {
-    try {
-      console.log('🧪 Testing AI service connection...');
+  private generateFallbackPlan(goalTitle: string, durationDays: number, answers: Record<string, string>): PlanResponse {
+    console.log('📝 Generating fallback plan for:', goalTitle);
+    
+    const goal = goalTitle.toLowerCase();
+    const answerValues = Object.values(answers).join(' ').toLowerCase();
+    
+    // Determine experience level and time commitment from answers
+    const isBeginnerLevel = answerValues.includes('beginner') || answerValues.includes('no experience') || answerValues.includes('never');
+    const hasLimitedTime = answerValues.includes('30 minutes') || answerValues.includes('limited') || answerValues.includes('busy');
+    
+    const phases = Math.ceil(durationDays / 3);
+    const daily_plan = [];
+    
+    for (let day = 1; day <= durationDays; day++) {
+      const phase = Math.ceil(day / phases);
+      const tasks = [];
       
-      // Check environment variables
-      if (!process.env.EXPO_PUBLIC_SUPABASE_URL || !process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY) {
-        console.error('❌ Missing Supabase environment variables');
-        return false;
+      if (phase === 1) { // Learning phase
+        tasks.push({
+          description: isBeginnerLevel 
+            ? `Learn the basics of ${goalTitle}` 
+            : `Review fundamentals and plan approach for ${goalTitle}`,
+          estimated_duration_minutes: hasLimitedTime ? 30 : 45
+        });
+        if (!hasLimitedTime) {
+          tasks.push({
+            description: 'Research resources and create action plan',
+            estimated_duration_minutes: 15
+          });
+        }
+      } else if (phase === 2) { // Practice phase
+        tasks.push({
+          description: `Practice key skills for ${goalTitle}`,
+          estimated_duration_minutes: hasLimitedTime ? 45 : 60
+        });
+        tasks.push({
+          description: 'Track progress and adjust approach',
+          estimated_duration_minutes: 15
+        });
+      } else { // Application phase
+        tasks.push({
+          description: `Apply knowledge and work on ${goalTitle}`,
+          estimated_duration_minutes: hasLimitedTime ? 60 : 90
+        });
+        tasks.push({
+          description: 'Share progress and get feedback',
+          estimated_duration_minutes: 15
+        });
       }
       
-      const response = await this.callAIFunction('test-function', {});
-      return response.success === true;
-    } catch (error) {
-      console.error('❌ AI service connection test failed:', error);
-      return false;
+      daily_plan.push({ day, tasks });
     }
+
+    return {
+      ai_insights: `Your ${durationDays}-day plan for "${goalTitle}" is structured in three phases: learning, practicing, and applying. ${isBeginnerLevel ? 'Starting with fundamentals will build a strong foundation.' : 'Building on your existing knowledge will accelerate progress.'} Stay consistent and adapt as you learn.`,
+      knowledge_gaps: [
+        {
+          gap: 'Understanding the fundamentals',
+          resource_recommendation: 'Research authoritative books, courses, or online resources in this area'
+        },
+        {
+          gap: 'Practical application skills',
+          resource_recommendation: 'Find hands-on projects or exercises to practice what you learn'
+        },
+        {
+          gap: 'Community and mentorship',
+          resource_recommendation: 'Join online communities, forums, or find mentors in this field'
+        }
+      ],
+      daily_plan
+    };
   }
 }
 

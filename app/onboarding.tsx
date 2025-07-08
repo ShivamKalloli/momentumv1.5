@@ -52,10 +52,7 @@ export default function OnboardingScreen() {
       }
     } catch (error) {
       console.error('Error creating goal:', error);
-      Alert.alert(
-        'AI Service Error', 
-        `${error.message}\n\nPlease ensure your Gemini API key is properly configured in Supabase Edge Functions.`
-      );
+      Alert.alert('Error', 'Failed to process your goal. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -94,10 +91,7 @@ export default function OnboardingScreen() {
       );
     } catch (error) {
       console.error('Error generating plan:', error);
-      Alert.alert(
-        'AI Service Error', 
-        `${error.message}\n\nPlease ensure your Gemini API key is properly configured in Supabase Edge Functions.`
-      );
+      Alert.alert('Error', 'Failed to create your plan. Please try again.');
       setStep('questions');
     } finally {
       setLoading(false);
@@ -266,7 +260,7 @@ export default function OnboardingScreen() {
         <Sparkles size={32} color="#3b82f6" />
         <Text style={styles.stepTitle}>Creating Your Plan</Text>
         <Text style={styles.stepSubtitle}>
-          AI is analyzing your goal and crafting a personalized plan...
+          I'm analyzing your goal and crafting a personalized plan...
         </Text>
       </View>
 
@@ -276,7 +270,7 @@ export default function OnboardingScreen() {
           <View style={[styles.dot, styles.dot2]} />
           <View style={[styles.dot, styles.dot3]} />
         </View>
-        <Text style={styles.generatingText}>Using Gemini AI to create your personalized plan...</Text>
+        <Text style={styles.generatingText}>This may take a moment</Text>
       </View>
     </View>
   );
@@ -368,7 +362,7 @@ const styles = StyleSheet.create({
   stepHeader: {
     alignItems: 'center',
     marginBottom: 40,
-    marginTop: 20,
+    marginTop: 40,
   },
   stepTitle: {
     fontSize: 24,
@@ -377,14 +371,12 @@ const styles = StyleSheet.create({
     marginTop: 16,
     marginBottom: 8,
     textAlign: 'center',
-    lineHeight: 32,
   },
   stepSubtitle: {
     fontSize: 16,
     color: '#6b7280',
     textAlign: 'center',
     lineHeight: 24,
-    paddingHorizontal: 20,
   },
   inputSection: {
     gap: 24,
@@ -502,7 +494,7 @@ const styles = StyleSheet.create({
   },
   generatingSection: {
     alignItems: 'center',
-    paddingVertical: 40,
+    paddingVertical: 60,
     gap: 24,
   },
   loadingDots: {
@@ -527,8 +519,6 @@ const styles = StyleSheet.create({
   generatingText: {
     fontSize: 14,
     color: '#6b7280',
-    textAlign: 'center',
-    paddingHorizontal: 20,
   },
   continueButton: {
     backgroundColor: '#3b82f6',
