@@ -27,7 +27,7 @@ serve(async (req) => {
             complexity: 'Simple Task' // fallback
           }),
           { 
-            status: 400, 
+            status: 200, 
             headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
           }
         )
@@ -43,7 +43,7 @@ serve(async (req) => {
           complexity: 'Simple Task' // fallback
         }),
         { 
-          status: 400, 
+          status: 200, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
       )
@@ -108,7 +108,7 @@ serve(async (req) => {
         debug: 'Error occurred, using fallback'
       }),
       { 
-        status: 500, 
+        status: 200, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     )

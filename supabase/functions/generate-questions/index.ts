@@ -32,7 +32,7 @@ serve(async (req) => {
             ]
           }),
           { 
-            status: 400, 
+            status: 200, 
             headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
           }
         )
@@ -53,7 +53,7 @@ serve(async (req) => {
           ]
         }),
         { 
-          status: 400, 
+          status: 200, 
           headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
         }
       )
@@ -160,7 +160,7 @@ serve(async (req) => {
         debug: 'Error occurred, using fallback questions'
       }),
       { 
-        status: 500, 
+        status: 200, 
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
       }
     )
