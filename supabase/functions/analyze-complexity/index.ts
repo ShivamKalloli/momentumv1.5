@@ -27,7 +27,7 @@ serve(async (req) => {
       }
     } catch (parseError) {
       console.error('❌ JSON parsing error:', parseError)
-      return createFallbackResponse('JSON parsing failed')
+      return createErrorResponse('JSON parsing failed', 'Complex Goal')
     }
 
     const { input_text } = requestBody as { input_text?: string }
@@ -35,23 +35,23 @@ serve(async (req) => {
 
     if (!input_text || typeof input_text !== 'string' || input_text.trim().length === 0) {
       console.warn('⚠️ Missing or invalid input_text parameter')
-      return createFallbackResponse('Invalid input')
+      return createErrorResponse('Missing or invalid input_text parameter', 'Complex Goal')
     }
+
+    const cleanInput = input_text.trim()
 
     // Try Gemini AI first
     if (GEMINI_API_KEY) {
       try {
         console.log('🤖 Using Gemini AI for complexity analysis')
-        const complexity = await analyzeWithGemini(input_text.trim())
+        const complexity = await analyzeWithGemini(cleanInput)
         
-        const response = { 
-          complexity,
-          debug: `Gemini AI analyzed "${input_text}" as ${complexity}`,
-          ai_powered: true
-        }
-
         return new Response(
-          JSON.stringify(response),
+          JSON.stringify({ 
+            complexity,
+            debug: `Gemini AI analyzed "${cleanInput}" as ${complexity}`,
+            ai_powered: true
+          }),
           { 
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -65,16 +65,14 @@ serve(async (req) => {
     }
 
     // Fallback to rule-based analysis
-    const complexity = analyzeWithRules(input_text.trim())
+    const complexity = analyzeWithRules(cleanInput)
     
-    const response = { 
-      complexity,
-      debug: `Rule-based analysis: "${input_text}" classified as ${complexity}`,
-      ai_powered: false
-    }
-
     return new Response(
-      JSON.stringify(response),
+      JSON.stringify({ 
+        complexity,
+        debug: `Rule-based analysis: "${cleanInput}" classified as ${complexity}`,
+        ai_powered: false
+      }),
       { 
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -83,7 +81,7 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('💥 Error in analyze-complexity:', error)
-    return createFallbackResponse('Unexpected error occurred')
+    return createErrorResponse('Unexpected error occurred', 'Complex Goal')
   }
 })
 
@@ -151,7 +149,8 @@ function analyzeWithRules(inputText: string): 'Simple Task' | 'Complex Goal' {
     'improve', 'plan', 'start', 'launch', 'study', 'practice',
     'train', 'prepare', 'establish', 'design', 'become',
     'understand', 'explore', 'discover', 'research', 'career',
-    'business', 'skill', 'habit', 'fitness', 'health'
+    'business', 'skill', 'habit', 'fitness', 'health', 'guitar',
+    'python', 'programming', 'code', 'algorithm', 'language'
   ]
   
   // Simple task indicators
@@ -180,16 +179,14 @@ function analyzeWithRules(inputText: string): 'Simple Task' | 'Complex Goal' {
   }
 }
 
-function createFallbackResponse(reason: string) {
-  const fallbackResponse = {
-    error: reason,
-    complexity: 'Complex Goal' as const,
-    debug: `${reason}, using fallback`,
-    ai_powered: false
-  }
-  
+function createErrorResponse(reason: string, fallbackComplexity: 'Simple Task' | 'Complex Goal') {
   return new Response(
-    JSON.stringify(fallbackResponse),
+    JSON.stringify({
+      error: reason,
+      complexity: fallbackComplexity,
+      debug: `${reason}, using fallback`,
+      ai_powered: false
+    }),
     { 
       status: 200, 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' } 

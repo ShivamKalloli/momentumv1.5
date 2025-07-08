@@ -27,7 +27,7 @@ serve(async (req) => {
       }
     } catch (parseError) {
       console.error('❌ JSON parsing error:', parseError)
-      return createFallbackResponse('JSON parsing failed', 'Default Goal')
+      return createErrorResponse('JSON parsing failed', 'Default Goal')
     }
 
     const { goal_title } = requestBody as { goal_title?: string }
@@ -35,23 +35,23 @@ serve(async (req) => {
 
     if (!goal_title || typeof goal_title !== 'string' || goal_title.trim().length === 0) {
       console.warn('⚠️ Missing or invalid goal_title parameter')
-      return createFallbackResponse('Invalid goal title', 'Default Goal')
+      return createErrorResponse('Missing or invalid goal_title parameter', goal_title || 'Default Goal')
     }
+
+    const cleanGoalTitle = goal_title.trim()
 
     // Try Gemini AI first
     if (GEMINI_API_KEY) {
       try {
         console.log('🤖 Using Gemini AI for question generation')
-        const questions = await generateWithGemini(goal_title.trim())
+        const questions = await generateWithGemini(cleanGoalTitle)
         
-        const response = { 
-          questions,
-          debug: `Gemini AI generated ${questions.length} questions for: "${goal_title}"`,
-          ai_powered: true
-        }
-
         return new Response(
-          JSON.stringify(response),
+          JSON.stringify({ 
+            questions,
+            debug: `Gemini AI generated ${questions.length} questions for: "${cleanGoalTitle}"`,
+            ai_powered: true
+          }),
           { 
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -65,16 +65,14 @@ serve(async (req) => {
     }
 
     // Fallback to rule-based questions
-    const questions = generateWithRules(goal_title.trim())
+    const questions = generateWithRules(cleanGoalTitle)
     
-    const response = { 
-      questions,
-      debug: `Rule-based generation: ${questions.length} questions for "${goal_title}"`,
-      ai_powered: false
-    }
-
     return new Response(
-      JSON.stringify(response),
+      JSON.stringify({ 
+        questions,
+        debug: `Rule-based generation: ${questions.length} questions for "${cleanGoalTitle}"`,
+        ai_powered: false
+      }),
       { 
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -83,7 +81,7 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('💥 Error in generate-questions:', error)
-    return createFallbackResponse('Unexpected error occurred', 'Default Goal')
+    return createErrorResponse('Unexpected error occurred', 'Default Goal')
   }
 })
 
@@ -221,7 +219,7 @@ function generateWithRules(goalTitle: string): string[] {
   }
 }
 
-function createFallbackResponse(reason: string, goalTitle: string) {
+function createErrorResponse(reason: string, goalTitle: string) {
   const fallbackQuestions = [
     'What is your current experience level with this goal?',
     'How much time can you realistically dedicate daily?',
@@ -229,15 +227,13 @@ function createFallbackResponse(reason: string, goalTitle: string) {
     'How will you measure success and stay motivated?'
   ]
   
-  const fallbackResponse = {
-    error: reason,
-    questions: fallbackQuestions,
-    debug: `${reason}, using fallback questions`,
-    ai_powered: false
-  }
-  
   return new Response(
-    JSON.stringify(fallbackResponse),
+    JSON.stringify({
+      error: reason,
+      questions: fallbackQuestions,
+      debug: `${reason}, using fallback questions`,
+      ai_powered: false
+    }),
     { 
       status: 200, 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' } 

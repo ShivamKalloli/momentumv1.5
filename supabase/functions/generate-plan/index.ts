@@ -44,7 +44,7 @@ serve(async (req) => {
       }
     } catch (parseError) {
       console.error('❌ JSON parsing error:', parseError)
-      return createFallbackResponse('JSON parsing failed', 'Default Goal', 7, {})
+      return createErrorResponse('JSON parsing failed', 'Default Goal', 30, {})
     }
 
     const { goal_title, duration_days, answers_to_questions } = requestBody as { 
@@ -57,23 +57,25 @@ serve(async (req) => {
 
     if (!goal_title || !duration_days) {
       console.warn('⚠️ Missing required parameters')
-      return createFallbackResponse('Missing required parameters', goal_title || 'Default Goal', duration_days || 7, answers_to_questions || {})
+      return createErrorResponse('Missing required parameters: goal_title and duration_days', goal_title || 'Default Goal', duration_days || 30, answers_to_questions || {})
     }
+
+    const cleanGoalTitle = goal_title.trim()
+    const cleanDurationDays = Math.max(1, Math.floor(duration_days))
+    const cleanAnswers = answers_to_questions || {}
 
     // Try Gemini AI first
     if (GEMINI_API_KEY) {
       try {
         console.log('🤖 Using Gemini AI for plan generation')
-        const plan = await generateWithGemini(goal_title, duration_days, answers_to_questions || {})
+        const plan = await generateWithGemini(cleanGoalTitle, cleanDurationDays, cleanAnswers)
         
-        const response = { 
-          plan,
-          debug: `Gemini AI generated ${duration_days}-day plan for "${goal_title}"`,
-          ai_powered: true
-        }
-
         return new Response(
-          JSON.stringify(response),
+          JSON.stringify({ 
+            plan,
+            debug: `Gemini AI generated ${cleanDurationDays}-day plan for "${cleanGoalTitle}"`,
+            ai_powered: true
+          }),
           { 
             status: 200,
             headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -87,16 +89,14 @@ serve(async (req) => {
     }
 
     // Fallback to rule-based plan
-    const plan = generateWithRules(goal_title, duration_days, answers_to_questions || {})
+    const plan = generateWithRules(cleanGoalTitle, cleanDurationDays, cleanAnswers)
     
-    const response = { 
-      plan,
-      debug: `Rule-based generation: ${duration_days}-day plan for "${goal_title}"`,
-      ai_powered: false
-    }
-
     return new Response(
-      JSON.stringify(response),
+      JSON.stringify({ 
+        plan,
+        debug: `Rule-based generation: ${cleanDurationDays}-day plan for "${cleanGoalTitle}"`,
+        ai_powered: false
+      }),
       { 
         status: 200,
         headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
@@ -105,7 +105,7 @@ serve(async (req) => {
 
   } catch (error) {
     console.error('💥 Error in generate-plan:', error)
-    return createFallbackResponse('Unexpected error occurred', 'Default Goal', 7, {})
+    return createErrorResponse('Unexpected error occurred', 'Default Goal', 30, {})
   }
 })
 
@@ -137,6 +137,7 @@ For the daily plan:
 - Make tasks specific and actionable (not vague like "practice coding")
 - Include variety to maintain engagement
 - Build in review and application opportunities
+- Create exactly ${durationDays} days of tasks
 
 Return ONLY a JSON object in this exact format:
 {
@@ -208,6 +209,11 @@ Return ONLY a JSON object in this exact format:
       throw new Error('Invalid daily plan format')
     }
     
+    // Ensure we have the correct number of days
+    if (plan.daily_plan.length !== durationDays) {
+      console.warn(`⚠️ Plan has ${plan.daily_plan.length} days but expected ${durationDays}`)
+    }
+    
     return plan
   } catch (parseError) {
     throw new Error(`Failed to parse Gemini response: ${parseError}`)
@@ -231,67 +237,130 @@ function generateWithRules(goalTitle: string, durationDays: number, answers: Rec
     const tasks = []
     
     if (goal.includes('learn') || goal.includes('study')) {
-      if (phase === 1) { // Foundation phase
-        tasks.push({
-          description: isBeginnerLevel 
-            ? `Learn the fundamentals of ${goalTitle}` 
-            : `Review and strengthen foundation knowledge in ${goalTitle}`,
-          estimated_duration_minutes: hasLimitedTime ? 30 : 45
-        })
-        if (!hasLimitedTime) {
+      if (goal.includes('python') || goal.includes('programming') || goal.includes('code')) {
+        if (phase === 1) { // Foundation phase
           tasks.push({
-            description: 'Research additional learning resources and create study plan',
-            estimated_duration_minutes: 15
+            description: isBeginnerLevel 
+              ? `Learn Python basics: variables, data types, and basic syntax` 
+              : `Review Python fundamentals and set up development environment`,
+            estimated_duration_minutes: hasLimitedTime ? 45 : 60
+          })
+          tasks.push({
+            description: 'Practice basic Python exercises and syntax',
+            estimated_duration_minutes: hasLimitedTime ? 30 : 45
+          })
+        } else if (phase === 2) { // Practice phase
+          tasks.push({
+            description: `Learn Python control structures: loops, conditionals, and functions`,
+            estimated_duration_minutes: hasLimitedTime ? 60 : 75
+          })
+          tasks.push({
+            description: 'Build small Python projects to practice concepts',
+            estimated_duration_minutes: hasLimitedTime ? 30 : 45
+          })
+        } else { // Application phase
+          tasks.push({
+            description: `Work on a comprehensive Python project applying all learned concepts`,
+            estimated_duration_minutes: hasLimitedTime ? 90 : 120
+          })
+          tasks.push({
+            description: 'Code review and optimization of your Python projects',
+            estimated_duration_minutes: 30
           })
         }
-      } else if (phase === 2) { // Practice phase
-        tasks.push({
-          description: `Practice key concepts and skills in ${goalTitle}`,
-          estimated_duration_minutes: hasLimitedTime ? 45 : 60
-        })
-        tasks.push({
-          description: 'Review progress and identify areas for improvement',
-          estimated_duration_minutes: 15
-        })
-      } else { // Application phase
-        tasks.push({
-          description: `Apply knowledge through projects or real-world scenarios`,
-          estimated_duration_minutes: hasLimitedTime ? 60 : 90
-        })
-        tasks.push({
-          description: 'Share progress and seek feedback from community or mentors',
-          estimated_duration_minutes: 15
-        })
+      } else if (goal.includes('guitar') || goal.includes('music')) {
+        if (phase === 1) { // Foundation phase
+          tasks.push({
+            description: isBeginnerLevel 
+              ? `Learn basic guitar chords and proper holding technique` 
+              : `Review fundamental chords and practice chord transitions`,
+            estimated_duration_minutes: hasLimitedTime ? 30 : 45
+          })
+          tasks.push({
+            description: 'Practice strumming patterns and rhythm exercises',
+            estimated_duration_minutes: hasLimitedTime ? 20 : 30
+          })
+        } else if (phase === 2) { // Practice phase
+          tasks.push({
+            description: `Learn new chord progressions and practice chord changes`,
+            estimated_duration_minutes: hasLimitedTime ? 45 : 60
+          })
+          tasks.push({
+            description: 'Practice playing simple songs with learned chords',
+            estimated_duration_minutes: hasLimitedTime ? 30 : 45
+          })
+        } else { // Application phase
+          tasks.push({
+            description: `Learn and practice complete songs, focusing on smooth transitions`,
+            estimated_duration_minutes: hasLimitedTime ? 60 : 90
+          })
+          tasks.push({
+            description: 'Record yourself playing and analyze areas for improvement',
+            estimated_duration_minutes: 20
+          })
+        }
+      } else {
+        // Generic learning goal
+        if (phase === 1) { // Foundation phase
+          tasks.push({
+            description: isBeginnerLevel 
+              ? `Learn the fundamentals of ${goalTitle}` 
+              : `Review and strengthen foundation knowledge in ${goalTitle}`,
+            estimated_duration_minutes: hasLimitedTime ? 45 : 60
+          })
+          tasks.push({
+            description: 'Research additional learning resources and create study plan',
+            estimated_duration_minutes: 20
+          })
+        } else if (phase === 2) { // Practice phase
+          tasks.push({
+            description: `Practice key concepts and skills in ${goalTitle}`,
+            estimated_duration_minutes: hasLimitedTime ? 60 : 75
+          })
+          tasks.push({
+            description: 'Review progress and identify areas for improvement',
+            estimated_duration_minutes: 15
+          })
+        } else { // Application phase
+          tasks.push({
+            description: `Apply knowledge through projects or real-world scenarios`,
+            estimated_duration_minutes: hasLimitedTime ? 90 : 120
+          })
+          tasks.push({
+            description: 'Share progress and seek feedback from community or mentors',
+            estimated_duration_minutes: 20
+          })
+        }
       }
     } else if (goal.includes('fitness') || goal.includes('workout')) {
       if (phase === 1) { // Building routine
         tasks.push({
           description: isBeginnerLevel 
-            ? 'Light exercise and form practice' 
-            : 'Establish consistent workout routine',
-          estimated_duration_minutes: hasLimitedTime ? 20 : 30
-        })
-        tasks.push({
-          description: 'Track energy levels and recovery',
-          estimated_duration_minutes: 5
-        })
-      } else if (phase === 2) { // Intensity building
-        tasks.push({
-          description: 'Increase workout intensity and duration',
+            ? 'Light cardio and basic bodyweight exercises' 
+            : 'Establish consistent workout routine with proper warm-up',
           estimated_duration_minutes: hasLimitedTime ? 30 : 45
         })
         tasks.push({
-          description: 'Monitor progress and adjust routine',
+          description: 'Track energy levels, recovery, and progress',
           estimated_duration_minutes: 10
         })
-      } else { // Performance phase
+      } else if (phase === 2) { // Intensity building
         tasks.push({
-          description: 'Challenge workouts and skill development',
+          description: 'Increase workout intensity and add strength training',
           estimated_duration_minutes: hasLimitedTime ? 45 : 60
         })
         tasks.push({
-          description: 'Plan next phase of fitness journey',
-          estimated_duration_minutes: 10
+          description: 'Monitor progress and adjust routine based on results',
+          estimated_duration_minutes: 15
+        })
+      } else { // Performance phase
+        tasks.push({
+          description: 'Challenge workouts with advanced exercises and techniques',
+          estimated_duration_minutes: hasLimitedTime ? 60 : 75
+        })
+        tasks.push({
+          description: 'Plan next phase of fitness journey and set new goals',
+          estimated_duration_minutes: 15
         })
       }
     } else {
@@ -301,18 +370,16 @@ function generateWithRules(goalTitle: string, durationDays: number, answers: Rec
           description: isBeginnerLevel 
             ? `Learn the basics of ${goalTitle}` 
             : `Review fundamentals and plan approach for ${goalTitle}`,
-          estimated_duration_minutes: hasLimitedTime ? 30 : 45
+          estimated_duration_minutes: hasLimitedTime ? 45 : 60
         })
-        if (!hasLimitedTime) {
-          tasks.push({
-            description: 'Research resources and create action plan',
-            estimated_duration_minutes: 15
-          })
-        }
+        tasks.push({
+          description: 'Research resources and create action plan',
+          estimated_duration_minutes: 20
+        })
       } else if (phase === 2) { // Practice phase
         tasks.push({
           description: `Practice key skills for ${goalTitle}`,
-          estimated_duration_minutes: hasLimitedTime ? 45 : 60
+          estimated_duration_minutes: hasLimitedTime ? 60 : 75
         })
         tasks.push({
           description: 'Track progress and adjust approach',
@@ -321,11 +388,11 @@ function generateWithRules(goalTitle: string, durationDays: number, answers: Rec
       } else { // Application phase
         tasks.push({
           description: `Apply knowledge and work on ${goalTitle}`,
-          estimated_duration_minutes: hasLimitedTime ? 60 : 90
+          estimated_duration_minutes: hasLimitedTime ? 90 : 120
         })
         tasks.push({
           description: 'Share progress and get feedback',
-          estimated_duration_minutes: 15
+          estimated_duration_minutes: 20
         })
       }
     }
@@ -351,45 +418,68 @@ function generateWithRules(goalTitle: string, durationDays: number, answers: Rec
   // Generate knowledge gaps based on goal type
   const knowledge_gaps = []
   
-  if (goal.includes('learn') || goal.includes('study')) {
+  if (goal.includes('python') || goal.includes('programming')) {
     knowledge_gaps.push(
       {
-        gap: 'Foundational knowledge and concepts',
-        resource_recommendation: 'Find authoritative books, online courses, or tutorials from reputable sources'
+        gap: 'Python syntax and core programming concepts',
+        resource_recommendation: 'Complete Python.org tutorial and practice on platforms like Codecademy or freeCodeCamp'
       },
       {
-        gap: 'Practical application skills',
-        resource_recommendation: 'Seek hands-on projects, exercises, or real-world practice opportunities'
+        gap: 'Problem-solving and algorithmic thinking',
+        resource_recommendation: 'Practice coding challenges on LeetCode, HackerRank, or Codewars'
       },
       {
-        gap: 'Community and mentorship',
-        resource_recommendation: 'Join online communities, forums, or find mentors in this field'
+        gap: 'Real-world application and project development',
+        resource_recommendation: 'Build projects like web scrapers, data analysis tools, or simple web applications'
+      },
+      {
+        gap: 'Best practices and code organization',
+        resource_recommendation: 'Read "Clean Code" by Robert Martin and study open-source Python projects on GitHub'
+      }
+    )
+  } else if (goal.includes('guitar')) {
+    knowledge_gaps.push(
+      {
+        gap: 'Proper technique and finger positioning',
+        resource_recommendation: 'Take lessons with a qualified instructor or follow structured online courses like JustinGuitar'
+      },
+      {
+        gap: 'Music theory fundamentals',
+        resource_recommendation: 'Learn basic music theory through apps like Yousician or books like "Harmony and Voice Leading"'
+      },
+      {
+        gap: 'Song repertoire and practical application',
+        resource_recommendation: 'Learn songs you enjoy and practice with backing tracks from YouTube or apps like Ultimate Guitar'
+      },
+      {
+        gap: 'Ear training and rhythm development',
+        resource_recommendation: 'Use apps like Ear Trainer or practice with metronome apps to develop timing and pitch recognition'
       }
     )
   } else if (goal.includes('fitness')) {
     knowledge_gaps.push(
       {
-        gap: 'Proper form and technique',
-        resource_recommendation: 'Work with a trainer or use video tutorials to learn correct form'
+        gap: 'Proper form and exercise technique',
+        resource_recommendation: 'Work with a personal trainer or follow reputable fitness YouTubers like Athlean-X or Calisthenic Movement'
       },
       {
-        gap: 'Nutrition and recovery knowledge',
-        resource_recommendation: 'Research nutrition basics and recovery strategies for your fitness goals'
+        gap: 'Nutrition and recovery principles',
+        resource_recommendation: 'Learn about macronutrients, meal planning, and recovery through resources like Precision Nutrition'
       },
       {
-        gap: 'Progressive overload principles',
-        resource_recommendation: 'Learn how to safely increase intensity and avoid plateaus'
+        gap: 'Progressive overload and program design',
+        resource_recommendation: 'Study strength training principles through books like "Starting Strength" or apps like Strong'
       }
     )
   } else {
     knowledge_gaps.push(
       {
-        gap: 'Understanding the fundamentals',
-        resource_recommendation: 'Research authoritative books, courses, or online resources in this area'
+        gap: 'Foundational knowledge and concepts',
+        resource_recommendation: 'Find authoritative books, online courses, or tutorials from reputable sources in your field'
       },
       {
         gap: 'Practical application skills',
-        resource_recommendation: 'Find hands-on projects or exercises to practice what you learn'
+        resource_recommendation: 'Seek hands-on projects, exercises, or real-world practice opportunities'
       },
       {
         gap: 'Community and mentorship',
@@ -405,18 +495,16 @@ function generateWithRules(goalTitle: string, durationDays: number, answers: Rec
   }
 }
 
-function createFallbackResponse(reason: string, goalTitle: string, durationDays: number, answers: Record<string, string>) {
+function createErrorResponse(reason: string, goalTitle: string, durationDays: number, answers: Record<string, string>) {
   const plan = generateWithRules(goalTitle, durationDays, answers)
   
-  const fallbackResponse = {
-    error: reason,
-    plan,
-    debug: `${reason}, using fallback plan`,
-    ai_powered: false
-  }
-  
   return new Response(
-    JSON.stringify(fallbackResponse),
+    JSON.stringify({
+      error: reason,
+      plan,
+      debug: `${reason}, using fallback plan`,
+      ai_powered: false
+    }),
     { 
       status: 200, 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
