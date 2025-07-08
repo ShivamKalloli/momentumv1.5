@@ -193,7 +193,7 @@ function createErrorResponse(reason: string, fallbackComplexity: 'Simple Task' |
       ai_powered: false
     }),
     { 
-      status: 200, 
+      status: 500, 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
     }
   )

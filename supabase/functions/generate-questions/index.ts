@@ -240,7 +240,7 @@ function createErrorResponse(reason: string, goalTitle: string) {
       ai_powered: false
     }),
     { 
-      status: 200, 
+      status: 500, 
       headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
     }
   )
